@@ -18,7 +18,7 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            width: 800px; /* Tăng độ rộng container */
+            width: 800px;
         }
         h1 {
             text-align: center;
@@ -36,16 +36,16 @@
         }
         table {
             width: 100%;
-            min-width: 800px; /* Đảm bảo bảng đủ rộng */
+            min-width: 800px;
             border-collapse: collapse;
             margin-bottom: 20px;
-            table-layout: auto; /* Cho phép bảng giãn ra dựa trên nội dung */
+            table-layout: auto;
         }
         th, td {
             padding: 10px;
             text-align: left;
             border-bottom: 1px solid #ddd;
-            word-break: break-all; /* Ngắt chữ nếu quá dài */
+            word-break: break-all;
         }
         th {
             background-color: #f2f2f2;
@@ -115,7 +115,7 @@
             border-radius: 10px;
             box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
             z-index: 1000;
-            width: 400px; /* Tăng độ rộng popup */
+            width: 400px;
             max-height: 80vh;
             overflow-y: auto;
         }
@@ -142,6 +142,9 @@
         }
         .close-btn:hover {
             background-color: #c82333;
+        }
+        tr[is_live="False"] {
+            background-color: #ffcccc; /* Màu đỏ nhạt cho hàng khi is_live = False */
         }
     </style>
     <script>
@@ -172,15 +175,17 @@
                 <th>Base URL</th>
                 <th>Provider</th>
                 <th>Balance</th>
+                <th>Description</th>
                 <th>Action</th>
             </tr>
             {% for key in keys %}
-            <tr>
+            <tr is_live="{{ key.is_live|lower }}">
                 <td>{{ loop.index }}</td>
                 <td>{{ key.api_key }}</td>
                 <td>{{ key.base_url }}</td>
                 <td>{{ key.provider }}</td>
                 <td>{{ "%.2f"|format(key.balance) }}</td>
+                <td>{{ key.description }}</td>
                 <td>
                     <form method="post" action="/delete_key/{{ key.id }}">
                         <button type="submit" class="delete-btn">Delete</button>
