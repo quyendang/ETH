@@ -7,3 +7,4 @@ supabase
 python-multipart
 ijson
 apscheduler
+requests
