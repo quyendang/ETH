@@ -18,7 +18,7 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            width: 600px;
+            width: 800px; /* Tăng độ rộng container */
         }
         h1 {
             text-align: center;
@@ -36,13 +36,16 @@
         }
         table {
             width: 100%;
+            min-width: 800px; /* Đảm bảo bảng đủ rộng */
             border-collapse: collapse;
             margin-bottom: 20px;
+            table-layout: auto; /* Cho phép bảng giãn ra dựa trên nội dung */
         }
         th, td {
             padding: 10px;
             text-align: left;
             border-bottom: 1px solid #ddd;
+            word-break: break-all; /* Ngắt chữ nếu quá dài */
         }
         th {
             background-color: #f2f2f2;
@@ -82,19 +85,21 @@
         }
         input[type="text"], select {
             width: 100%;
-            padding: 8px;
+            padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+            font-size: 14px;
         }
         button[type="submit"] {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             background-color: #007BFF;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 16px;
         }
         button[type="submit"]:hover {
             background-color: #0056b3;
@@ -106,10 +111,13 @@
             left: 50%;
             transform: translate(-50%, -50%);
             background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
             z-index: 1000;
+            width: 400px; /* Tăng độ rộng popup */
+            max-height: 80vh;
+            overflow-y: auto;
         }
         .overlay {
             display: none;
@@ -163,6 +171,7 @@
                 <th>API Key</th>
                 <th>Base URL</th>
                 <th>Provider</th>
+                <th>Balance</th>
                 <th>Action</th>
             </tr>
             {% for key in keys %}
@@ -171,6 +180,7 @@
                 <td>{{ key.api_key }}</td>
                 <td>{{ key.base_url }}</td>
                 <td>{{ key.provider }}</td>
+                <td>{{ "%.2f"|format(key.balance) }}</td>
                 <td>
                     <form method="post" action="/delete_key/{{ key.id }}">
                         <button type="submit" class="delete-btn">Delete</button>
