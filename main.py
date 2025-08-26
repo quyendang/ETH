@@ -1,16 +1,9 @@
 import os
 import logging
-import subprocess
-import datetime
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -24,67 +17,6 @@ if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
 supabase: Client = create_client(supabase_url, supabase_key)
-
-# Thêm các biến môi trường cần thiết cho backup
-# Bạn cần set các env var này trên Render.com:
-# - POSTGRES_DB_URL: Connection string đầy đủ đến DB Supabase (ví dụ: postgresql://[user]:[password]@[host]:[port]/[dbname])
-# - GOOGLE_DRIVE_FOLDER_ID: ID của folder trên Google Drive để upload backup
-# - GOOGLE_SERVICE_ACCOUNT_KEY: Nội dung JSON của service account key (dán toàn bộ JSON string)
-
-POSTGRES_DB_URL = os.environ.get("POSTGRES_DB_URL")
-GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
-GOOGLE_SERVICE_ACCOUNT_KEY = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY")
-
-if not POSTGRES_DB_URL or not GOOGLE_DRIVE_FOLDER_ID or not GOOGLE_SERVICE_ACCOUNT_KEY:
-    raise ValueError("POSTGRES_DB_URL, GOOGLE_DRIVE_FOLDER_ID, và GOOGLE_SERVICE_ACCOUNT_KEY phải được thiết lập.")
-
-# Hàm để backup database
-def backup_supabase_to_drive():
-    try:
-        # Tạo tên file backup với timestamp
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = f"supabase_backup_{timestamp}.sql"
-
-        # Sử dụng pg_dump để dump database (giả sử pg_dump đã có sẵn; nếu không, cần install postgres client trên Render qua build command)
-        # Lưu ý: Trên Render, bạn có thể thêm build command: apt-get update && apt-get install -y postgresql-client
-        subprocess.run(["pg_dump", POSTGRES_DB_URL, "-f", backup_file], check=True)
-
-        # Authenticate Google Drive API với service account
-        credentials = service_account.Credentials.from_service_account_info(
-            eval(GOOGLE_SERVICE_ACCOUNT_KEY),  # Chuyển JSON string thành dict
-            scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
-        service = build("drive", "v3", credentials=credentials)
-
-        # Upload file lên Google Drive
-        file_metadata = {
-            "name": backup_file,
-            "parents": [GOOGLE_DRIVE_FOLDER_ID]
-        }
-        media = MediaFileUpload(backup_file, mimetype="application/sql")
-        service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-
-        # Xóa file tạm sau khi upload
-        os.remove(backup_file)
-
-        logging.info(f"Backup thành công: {backup_file} uploaded to Google Drive.")
-
-    except Exception as e:
-        logging.error(f"Lỗi khi backup: {str(e)}")
-
-# Khởi tạo scheduler
-scheduler = BackgroundScheduler()
-scheduler.start()
-scheduler.add_job(
-    backup_supabase_to_drive,
-    trigger=IntervalTrigger(hours=24),
-    id="supabase_backup_job",
-    name="Backup Supabase DB every 24 hours",
-    replace_existing=True
-)
-
-# Chạy backup ngay lần đầu khi app start (tùy chọn, có thể comment nếu không cần)
-backup_supabase_to_drive()
 
 @app.get("/", response_class=HTMLResponse)
 def homepage(request: Request):
