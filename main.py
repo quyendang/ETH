@@ -1,9 +1,12 @@
 import os
 import logging
+import requests
+from datetime import datetime
 from fastapi import FastAPI, Query, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -153,9 +156,46 @@ async def delete_key(request: Request, id: str):
         logging.error(f"[ERROR] Deleting key: {str(e)}")
         return templates.TemplateResponse("key.html", {"request": request, "error": str(e)})
 
+def update_elevenlabs_keys():
+    try:
+        # Lấy danh sách key từ ttskeys
+        response = supabase.table("ttskeys").select("*").execute()
+        keys = response.data
+
+        for key in keys:
+            if key["provider"] == "Elevenlabs":
+                # Gọi API để lấy thông tin subscription
+                api_url = "https://api.elevenlabs.io/v1/user/subscription"
+                headers = {"xi-api-key": key["api_key"]}
+                api_response = requests.get(api_url, headers=headers).json()
+
+                # Tính toán và cập nhật
+                character_limit = api_response["character_limit"]
+                character_count = api_response["character_count"]
+                balance = character_limit - character_count
+                is_live = balance > 10
+                next_reset = datetime.fromtimestamp(api_response["next_character_count_reset_unix"]).strftime('%Y-%m-%d %H:%M:%S')
+                description = f"{api_response['tier']} - {next_reset}"
+
+                # Cập nhật vào Supabase
+                supabase.table("ttskeys").update({
+                    "balance": balance,
+                    "is_live": is_live,
+                    "description": description
+                }).eq("id", key["id"]).execute()
+
+        logging.info("Updated Elevenlabs keys successfully")
+    except Exception as e:
+        logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
+
+# Cấu hình scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(update_elevenlabs_keys, 'interval', hours=1)
+scheduler.start()
+
 if __name__ == "__main__":
     import uvicorn
-
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
