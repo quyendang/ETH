@@ -110,7 +110,16 @@ async def process_lesson(request: Request, short_id: str, c: str, p: str):
 
 @app.get("/keys", response_class=HTMLResponse)
 async def keys_page(request: Request):
-    return templates.TemplateResponse("key.html", {"request": request})
+    try:
+        response = supabase.table("ttskeys").select("*").execute()
+        keys = response.data
+        for key in keys:
+            if key["api_key"] and len(key["api_key"]) > 4:
+                key["api_key"] = key["api_key"][:-4] + "****"
+    except Exception as e:
+        logging.error(f"[ERROR] Fetching keys: {str(e)}")
+        keys = []
+    return templates.TemplateResponse("key.html", {"request": request, "keys": keys})
 
 @app.post("/keys")
 async def add_key(
@@ -130,9 +139,18 @@ async def add_key(
             "description": ""
         }
         response = supabase.table("ttskeys").insert(data).execute()
-        return templates.TemplateResponse("key.html", {"request": request, "success": "Key added successfully"})
+        return templates.TemplateResponse("key.html", {"request": request, "success": "Key added successfully", "keys": response.data})
     except Exception as e:
         logging.error(f"[ERROR] Adding key: {str(e)}")
+        return templates.TemplateResponse("key.html", {"request": request, "error": str(e)})
+
+@app.post("/delete_key/{id}")
+async def delete_key(request: Request, id: str):
+    try:
+        response = supabase.table("ttskeys").delete().eq("id", id).execute()
+        return templates.TemplateResponse("key.html", {"request": request, "success": "Key deleted successfully"})
+    except Exception as e:
+        logging.error(f"[ERROR] Deleting key: {str(e)}")
         return templates.TemplateResponse("key.html", {"request": request, "error": str(e)})
 
 if __name__ == "__main__":
