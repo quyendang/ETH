@@ -18,7 +18,8 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            width: 800px;
+            width: 1000px; /* Tăng độ rộng container lên 1000px */
+            max-width: 90%; /* Giới hạn tối đa 90% để không vượt quá màn hình */
         }
         h1 {
             text-align: center;
@@ -36,7 +37,7 @@
         }
         table {
             width: 100%;
-            min-width: 800px;
+            min-width: 1000px; /* Tăng min-width của bảng lên 1000px */
             border-collapse: collapse;
             margin-bottom: 20px;
             table-layout: auto;
@@ -144,7 +145,7 @@
             background-color: #c82333;
         }
         tr[is_live="False"] {
-            background-color: #ffcccc; /* Màu đỏ nhạt cho hàng khi is_live = False */
+            background-color: #ffcccc;
         }
     </style>
     <script>
