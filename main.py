@@ -108,6 +108,33 @@ async def process_lesson(request: Request, short_id: str, c: str, p: str):
         },
     )
 
+@app.get("/keys", response_class=HTMLResponse)
+async def keys_page(request: Request):
+    return templates.TemplateResponse("key.html", {"request": request})
+
+@app.post("/keys")
+async def add_key(
+    request: Request,
+    api_key: str = Form(...),
+    base_url: str = Form(...),
+    provider: str = Form(...)
+):
+    try:
+        data = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "provider": provider,
+            "created_at": "now()",
+            "is_live": True,
+            "balance": 0.0,
+            "description": ""
+        }
+        response = supabase.table("ttskeys").insert(data).execute()
+        return templates.TemplateResponse("key.html", {"request": request, "success": "Key added successfully"})
+    except Exception as e:
+        logging.error(f"[ERROR] Adding key: {str(e)}")
+        return templates.TemplateResponse("key.html", {"request": request, "error": str(e)})
+
 if __name__ == "__main__":
     import uvicorn
 
