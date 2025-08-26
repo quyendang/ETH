@@ -6,3 +6,4 @@ pydantic
 supabase
 python-multipart
 ijson
+apscheduler
