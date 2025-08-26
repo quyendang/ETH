@@ -188,6 +188,7 @@ def update_elevenlabs_keys():
     except Exception as e:
         logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
 
+update_elevenlabs_keys()
 # Cấu hình scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(update_elevenlabs_keys, 'interval', hours=1)
