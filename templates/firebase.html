@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Học từ mới</title>
+    <!-- Add Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/8.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.7.0/firebase-database.js"></script>
+    <!-- Add Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <!-- Add Bootstrap and DataTables -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/jquery.dataTables.min.css" />
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js"></script>
+    <style>
+        @import url("https://fonts.googleapis.com/css?family=Bangers|Cinzel:400,700,900|Lato:100,300,400,700,900|Lobster|Lora:400,700|Mansalva|Muli:200,300,400,600,700,800,900|Open+Sans:300,400,600,700,800|Oswald:200,300,400,500,600,700|Roboto:100,300,400,500,700,900&display=swap");
+        /* Used Google Fonts */
+        font-family: "Roboto", sans-serif;
+        font-family: "Mansalva", cursive;
+        font-family: "Lato", sans-serif;
+        font-family: "Open Sans", sans-serif;
+        font-family: "Oswald", sans-serif;
+        font-family: "Lora", serif;
+        font-family: "Muli", sans-serif;
+        font-family: "Lobster", cursive;
+        font-family: "Cinzel", serif;
+        font-family: "Bangers", cursive;
+        /* Used Google Fonts */
+        * {
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-size: 17px;
+            color: #424242;
+            font-family: "Open Sans", sans-serif;
+            background-color: #ffffff;
+            background-image: url("https://www.transparenttextures.com/patterns/clean-gray-paper.png");
+        }
+        .header-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin: 20px 0;
+        }
+        .logo-container {
+            position: absolute;
+            left: 0;
+        }
+        .logo-container img {
+            width: 80px;
+            height: 80px;
+            margin-left: 20px;
+            margin-bottom: 10px;
+        }
+        #lessonTitle {
+            text-align: center;
+            margin: 0;
+            padding-left: 60px;
+        }
+        .table {
+            width: 100%;
+            margin-bottom: 1rem;
+            color: #212529;
+            border-collapse: collapse;
+        }
+        .table th,
+        .table td {
+            padding: 0.75rem;
+            vertical-align: top;
+            border-top: 1px solid #dee2e6;
+        }
+        .table th {
+            background-color: #f8f9fa;
+        }
+        .word-col {
+            position: relative;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .word-col2 {
+            position: relative;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .word-play-btn {
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+        .wide-column {
+            width: 200px;
+        }
+        .play-btn {
+            background: none;
+            outline: none;
+            border: none;
+            color: rgba(26, 188, 156, 1.0);
+            cursor: pointer;
+            float: right;
+        }
+        .play-btn:focus {
+            outline: none;
+            box-shadow: none;
+        }
+        .logo-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            padding: 10px;
+        }
+        .table td:nth-child(4) {
+            white-space: nowrap;
+        }
+        .table td:nth-child(7) {
+            width: calc(50px + 100%);
+            max-width: calc(50px + 100%);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .table td:nth-child(3) {
+            width: calc(300px + 100%);
+            max-width: calc(300px + 100%);
+        }
+        .logo-container img {
+            max-height: 50px;
+        }
+        @media print {
+            .play-btn.print-hidden {
+                display: none !important;
+            }
+            .print-hidden {
+                color: transparent;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header-container">
+        <div class="logo-container">
+            <img src="logo.png" alt="Logo" />
+        </div>
+        <h1 id="lessonTitle">Lesson Title</h1>
+    </div>
+    <div class="container">
+        <table class="table table-striped table-bordered" cellspacing="0" width="100%">
+            <thead>
+                <tr>
+                    <th>*</th>
+                    <th>Từ</th>
+                    <th>Loại từ</th>
+                    <th>Phát âm</th>
+                    <th>Definition</th>
+                    <th>Ví dụ</th>
+                    <th>Ý nghĩa (VI)</th>
+                </tr>
+            </thead>
+            <tbody id="wordTable"></tbody>
+        </table>
+    </div>
+    <script>
+        const databaseURL = "https://nieng-9b82a-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+        // Get parameters from Jinja2 template
+        const userId = "{{ userid | default('') }}";
+        const groupId = "{{ groupid | default('') }}";
+        const lessonId = "{{ lessonid | default('') }}";
+        let columnsToHide = "{{ column | default('') }}";
+        let printsToHide = "{{ print | default('') }}";
+        const sortParam = "{{ sort | default('') }}";
+
+        // Decode base64 encoded parameters if they exist
+        if (columnsToHide) {
+            columnsToHide = atob(columnsToHide);
+        }
+        if (printsToHide) {
+            printsToHide = atob(printsToHide);
+        }
+
+        // Call displayData with the parameters
+        if (userId && groupId && lessonId) {
+            displayData(userId, groupId, lessonId, columnsToHide, printsToHide, sortParam);
+        }
+
+        function displayData(userId, groupId, lessonId, columnsToHide, printsToHide, sortParam) {
+            fetch(`${databaseURL}/users/${userId}/groups/${groupId}/lessons/${lessonId}/words.json`)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data) return;
+                    let wordList = Object.values(data);
+
+                    if (sortParam) {
+                        if (sortParam === "0") {
+                            wordList.sort((a, b) => a.time - b.time);
+                        } else if (sortParam === "1") {
+                            wordList.sort((a, b) => a.word.localeCompare(b.word));
+                        }
+                    }
+
+                    let wordListHTML = "";
+                    let count = 1;
+                    const hidenPrints = printsToHide ? printsToHide.split(",") : [];
+                    const printsAsIntegers = hidenPrints.map(num => parseInt(num));
+
+                    wordList.forEach(wordData => {
+                        wordListHTML += "<tr>";
+                        wordListHTML += `<td>${count}</td>`;
+                        if (columnsToHide && columnsToHide.split(",").includes("1")) {
+                            wordListHTML += "<td colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td class='word-col'><button class='play-btn word-play-btn print-hidden' data-audio='${wordData.usVoice}'><i class='fas fa-play'></i></button><strong>${wordData.word}</strong></td>`;
+                        }
+                        if (columnsToHide && columnsToHide.split(",").includes("2")) {
+                            wordListHTML += "<td colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td>${wordData.wordType}</td>`;
+                        }
+                        if (columnsToHide && columnsToHide.split(",").includes("3")) {
+                            wordListHTML += "<td class='wide-column' colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td>${wordData.pronunciation}</td>`;
+                        }
+                        if (columnsToHide && columnsToHide.split(",").includes("4")) {
+                            wordListHTML += "<td colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td>${wordData.meaning}</td>`;
+                        }
+                        if (columnsToHide && columnsToHide.split(",").includes("5")) {
+                            wordListHTML += "<td colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td>${wordData.eg2}</td>`;
+                        }
+                        if (columnsToHide && columnsToHide.split(",").includes("6")) {
+                            wordListHTML += "<td colspan='1'></td>";
+                        } else {
+                            wordListHTML += `<td>${wordData.eg}</td>`;
+                        }
+                        wordListHTML += "</tr>";
+                        count++;
+                    });
+
+                    document.getElementById("wordTable").innerHTML = wordListHTML;
+
+                    // Add event listeners for play buttons
+                    document.querySelectorAll(".play-btn").forEach(button => {
+                        button.addEventListener("click", () => {
+                            const audioUrl = button.getAttribute("data-audio");
+                            if (audioUrl.includes("http")) {
+                                var audio = new Audio(audioUrl);
+                                audio.play();
+                                button.innerHTML = '<i class="fas fa-pause"></i>';
+                                audio.addEventListener('ended', function() {
+                                    button.innerHTML = '<i class="fas fa-play"></i>';
+                                });
+                            } else {
+                                var audio = new Audio("data:audio/mp3;base64,".concat(audioUrl));
+                                audio.play();
+                                button.innerHTML = '<i class="fas fa-pause"></i>';
+                                audio.addEventListener('ended', function() {
+                                    button.innerHTML = '<i class="fas fa-play"></i>';
+                                });
+                            }
+                        });
+                    });
+
+                    const trList = document.getElementsByTagName("tr");
+                    Array.from(trList).forEach((itemTr, indexTr) => {
+                        if (indexTr > 0) {
+                            var tdList = itemTr.getElementsByTagName("td");
+                            Array.from(tdList).forEach((itemTd, indexTd) => {
+                                if (printsAsIntegers.includes(indexTd)){
+                                    itemTd.classList.add('print-hidden');
+                                }
+                            });
+                        }
+                    });
+                })
+                .catch(error => console.error("Error fetching data:", error));
+
+            fetch(`${databaseURL}/users/${userId}/groups/${groupId}/lessons/${lessonId}.json`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.lessonName) {
+                        document.getElementById("lessonTitle").innerHTML = data.lessonName;
+                    }
+                })
+                .catch(error => console.error("Error fetching lesson data:", error));
+        }
+
+        function copyData() {
+            var rows = document.getElementById("wordTable").getElementsByTagName("tr");
+            var clipboardData = "";
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var word = row.getElementsByTagName("td")[1].innerText;
+                var meaning = row.getElementsByTagName("td")[4].innerText;
+                var vn = row.getElementsByTagName("td")[6].innerText;
+                clipboardData += word + "\t" + meaning + "\n";
+            }
+            var textarea = document.createElement("textarea");
+            textarea.textContent = clipboardData;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+            console.log("Đã sao chép vào clipboard");
+        }
+
+        function copyData2() {
+            var rows = document.getElementById("wordTable").getElementsByTagName("tr");
+            var clipboardData = "";
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var word = row.getElementsByTagName("td")[1].innerText;
+                var meaning = row.getElementsByTagName("td")[4].innerText;
+                var vn = row.getElementsByTagName("td")[6].innerText;
+                clipboardData += word + "\t" + meaning + "[" + vn + "]" + "\n";
+            }
+            var textarea = document.createElement("textarea");
+            textarea.textContent = clipboardData;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+            console.log("Đã sao chép vào clipboard");
+        }
+
+        function showCopySetup() {
+            var userInput = prompt("Enter Format:");
+            if (userInput === null || userInput.trim() === "") {
+                alert("Please enter some text!");
+            } else {
+                const arr = userInput.split('|');
+                var rows = document.getElementById("wordTable").getElementsByTagName("tr");
+                var clipboardData = "";
+                for (var i = 0; i < rows.length; i++) {
+                    var row = rows[i];
+                    arr.forEach(function(item) {
+                        clipboardData += row.getElementsByTagName("td")[parseInt(item.trim())].innerText + "\t";
+                    });
+                    clipboardData += "\n";
+                }
+                var textarea = document.createElement("textarea");
+                textarea.textContent = clipboardData;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+                console.log("Đã sao chép vào clipboard");
+            }
+        }
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key === "q") {
+                event.preventDefault();
+                copyData();
+            }
+            if (event.key === "w") {
+                event.preventDefault();
+                copyData2();
+            }
+            if (event.key === "e") {
+                event.preventDefault();
+                showCopySetup();
+            }
+        });
+    </script>
+</body>
+</html>
