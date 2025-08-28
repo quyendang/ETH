@@ -60,14 +60,6 @@ async def share_lesson(
 ):
     return await process_lesson(request, id, c, p)
 
-@app.get("/{short_id}", response_class=HTMLResponse)
-async def share_lesson_by_short_id(
-    request: Request,
-    short_id: str,
-    c: str = Query("", description="Ẩn nội dung cột khi hiển thị, vd: 1,2,4"),
-    p: str = Query("", description="Ẩn nội dung cột khi in, vd: 4,5"),
-):
-    return await process_lesson(request, short_id, c, p)
 
 async def process_lesson(request: Request, short_id: str, c: str, p: str):
     try:
@@ -350,7 +342,15 @@ def get_latest_build_version():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
+@app.get("/{short_id}", response_class=HTMLResponse)
+async def share_lesson_by_short_id(
+    request: Request,
+    short_id: str,
+    c: str = Query("", description="Ẩn nội dung cột khi hiển thị, vd: 1,2,4"),
+    p: str = Query("", description="Ẩn nội dung cột khi in, vd: 4,5"),
+):
+    return await process_lesson(request, short_id, c, p)
+    
 update_elevenlabs_keys()
 # Cấu hình scheduler
 scheduler = BackgroundScheduler()
