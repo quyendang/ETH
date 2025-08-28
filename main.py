@@ -217,115 +217,35 @@ def update_elevenlabs_keys():
         logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
 
 
-def _load_private_key() -> str:
-    """
-    Trả về private key (.p8) dưới dạng string.
-    Ưu tiên ASC_P8_KEY (raw hoặc base64). Nếu không có, dùng ASC_P8_PATH.
-    """
-    if P8_INLINE:
-        # thử decode base64, nếu fail thì coi như raw
-        try:
-            return P8_INLINE
-        except Exception:
-            return P8_INLINE
-    if not P8_PATH:
-        raise RuntimeError("Missing ASC_P8_PATH or ASC_P8_KEY")
-    with open(P8_PATH, "r") as f:
-        return f.read()
-
-
-def make_jwt() -> str:
-    if not ISSUER_ID or not KEY_ID:
-        raise RuntimeError("Missing ASC_ISSUER_ID or ASC_KEY_ID")
-    private_key = _load_private_key()
+def make_jwt():
+    private_key = P8_INLINE
     now = int(time.time())
     payload = {
         "iss": ISSUER_ID,
-        "exp": now + 20 * 60,  # token tối đa 20 phút
-        "aud": "appstoreconnect-v1",
+        "exp": now + 20 * 60,     # 20 phút
+        "aud": "appstoreconnect-v1"
     }
     headers = {
         "kid": KEY_ID,
         "alg": "ES256",
-        "typ": "JWT",
+        "typ": "JWT"
     }
     return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
 
-
-def asc_get(url: str, token: str) -> Dict:
-    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
-    if r.status_code >= 400:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
+def asc_get(url, token):
+    r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+    r.raise_for_status()
     return r.json()
 
+def get_app_id(token, bundle_id):
+    url = f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}"
+    data = asc_get(url, token)
+    return data["data"][0]["id"]
 
-def fetch_all_builds_for_app(app_id: str, token: str, limit: int = 200) -> List[Dict]:
-    """
-    Lấy tất cả builds qua phân trang (links.next).
-    """
-    url = f"{ASC_API_BASE}/builds?filter[app]={app_id}&include=preReleaseVersion&limit={limit}"
-    builds = []
-    while True:
-        data = asc_get(url, token)
-        builds.extend(data.get("data", []))
-        next_link = data.get("links", {}).get("next")
-        if not next_link:
-            break
-        url = next_link
-    return builds
-
-
-def parse_iso(ts: Optional[str]):
-    from datetime import datetime
-    if not ts:
-        return None
-    try:
-        # ví dụ: "2024-08-20T10:11:12Z"
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-
-def version_key(v: Optional[str]):
-    """
-    Chuyển "1.10.3" -> (1,10,3) để sort; không phụ thuộc packaging.
-    """
-    if not v:
-        return tuple()
-    parts = []
-    for p in v.split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            # nếu có hậu tố (beta, rc), đẩy xuống sau số
-            parts.append(float("inf"))
-    return tuple(parts)
-
-
-def pick_latest_build(builds: List[Dict]) -> Optional[Dict]:
-    if not builds:
-        return None
-
-    # Ưu tiên build VALID & chưa hết hạn
-    valid = [
-        b for b in builds
-        if b.get("attributes", {}).get("processingState") == "VALID"
-        and b.get("attributes", {}).get("expired") is False
-    ]
-    pool = valid if valid else builds
-
-    def sort_key(b: Dict):
-        attr = b.get("attributes", {})
-        up = parse_iso(attr.get("uploadedDate"))  # datetime hoặc None
-        ver = version_key(attr.get("version"))
-        try:
-            bn = int(attr.get("buildNumber", "0"))
-        except ValueError:
-            bn = 0
-        # sort theo uploadedDate trước, sau đó version, rồi buildNumber
-        return (up or parse_iso("1970-01-01T00:00:00Z"), ver, bn)
-
-    return sorted(pool, key=sort_key)[-1]
+def get_builds(token, app_id, limit=200):
+    url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&include=preReleaseVersion&limit={limit}"
+    data = asc_get(url, token)
+    return data["data"]
 
 
 @app.get("/build")
@@ -335,8 +255,8 @@ def get_latest_build_version():
     """
     try:
         token = make_jwt()
-        builds = fetch_all_builds_for_app(APP_ID, token)
-        latest = pick_latest_build(builds)
+        builds = get_builds(token, APP_ID)
+        latest = parse_latest(builds)
         if not latest:
             raise HTTPException(status_code=404, detail="No builds found for the app.")
         version = latest.get("attributes", {}).get("version")
