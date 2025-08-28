@@ -1,436 +1,507 @@
-
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Học từ mới</title>
-    <!-- Add Firebase SDK -->
-    <!-- <script src="https://www.gstatic.com/firebasejs/8.7.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.7.0/firebase-database.js"></script> -->
-    <!-- Add Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
-      <!-- Add Bootstrap and DataTables -->
-      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" />
-      <link rel="stylesheet" href="https://cdn.datatables.net/1.10.24/css/jquery.dataTables.min.css" />
-      <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-      <script src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.min.js"></script>
-      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js"></script>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/css/flag-icons.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        @import url("https://fonts.googleapis.com/css?family=Bangers|Cinzel:400,700,900|Lato:100,300,400,700,900|Lobster|Lora:400,700|Mansalva|Muli:200,300,400,600,700,800,900|Open+Sans:300,400,600,700,800|Oswald:200,300,400,500,600,700|Roboto:100,300,400,500,700,900&display=swap");
-        /* Used Google Fonts */
-        font-family: "Roboto", sans-serif;
-        font-family: "Mansalva", cursive;
-        font-family: "Lato", sans-serif;
-        font-family: "Open Sans", sans-serif;
-        font-family: "Oswald", sans-serif;
-        font-family: "Lora", serif;
-        font-family: "Muli", sans-serif;
-        font-family: "Lobster", cursive;
-        font-family: "Cinzel", serif;
-        font-family: "Bangers", cursive;
-        /* Used Google Fonts */
-        * {
-        margin: 0;
-        padding: 0;
-        }
-        body {
-        font-size: 17px;
-        color: #424242;
-        font-family: "Open Sans", sans-serif;
-        background-color: #ffffff;
-        background-image: url("https://www.transparenttextures.com/patterns/clean-gray-paper.png");
-        }
-        /* Thêm kiểu CSS cho phần header */
-        /* #lessonTitle {
+      body {
+        background-color: #f7f9fc;
+        font-family: 'Arial', sans-serif;
+        color: #2d3748;
+      }
+
+      .container {
+        max-width: 1500px;
+        margin: 40px auto;
+        padding: 0 15px;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
         text-align: center;
-        margin-bottom: 20px;
-        } */
-        .header-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    margin: 20px 0;
-}
+        margin-bottom: 10px;
+        color: #2d3748;
+      }
 
-.logo-container {
-    position: absolute;
-    left: 0;
-}
+      .summary {
+        font-size: 0.9rem;
+        text-align: center;
+        margin-bottom: 25px;
+        color: #718096;
+      }
 
-.logo-container img {
-    width: 80px;
-    height: 80px;
-    margin-left: 20px; /* Thêm margin bên trái */
-    margin-bottom: 10px; /* Thêm margin bên dưới */
-}
+      .summary strong {
+        font-weight: 600;
+      }
 
-#lessonTitle {
-    text-align: center;
-    margin: 0;
-    padding-left: 60px; /* Adjust padding to prevent overlap */
-}
-        /* Thêm kiểu CSS cho bảng */
-        .table {
-        width: 100%;
-        margin-bottom: 1rem;
-        color: #212529;
+      .table {
         border-collapse: collapse;
-        }
-        .table th,
-        .table td {
-        padding: 0.75rem;
-        vertical-align: top;
-        border-top: 1px solid #dee2e6;
-        }
-        .table th {
-        background-color: #f8f9fa;
-        }
-        /* Thêm kiểu CSS cho cột "Từ" */
-        .word-col {
-        position: relative;
-        overflow: hidden; /* Ẩn phần nội dung vượt quá kích thước của cột */
-        text-overflow: ellipsis; /* Hiển thị dấu elipsis (...) nếu nội dung vượt quá kích thước của cột */
-        }
-        .word-col2 {
-        position: relative;
-        white-space: nowrap;
-        overflow: hidden; /* Ẩn phần nội dung vượt quá kích thước của cột */
-        text-overflow: ellipsis; /* Hiển thị dấu elipsis (...) nếu nội dung vượt quá kích thước của cột */
-        }
-        .word-play-btn {
-        vertical-align: middle;
-        margin-left: 5px; /* Khoảng cách giữa nút và nội dung của cột "Từ" */
-        }
-        .wide-column {
-        width: 200px; /* đặt độ rộng gấp đôi so với các cột khác */
-        }
-        /* Thêm kiểu CSS cho nút phát âm */
-         /* Thêm kiểu CSS cho nút phát âm */
-       .play-btn {
-           background: none;
-           outline: none;
-           /* Loại bỏ viền outline khi nút được focus */
-           border: none;
-           color: rgba(26, 188, 156, 1.0);
-           /* Màu đỏ với độ trong suốt 50% */
-           cursor: pointer;
-           float: right;
-       }
-       .play-btn:focus {
-           outline: none;
-           box-shadow: none;
-       }
-        .logo-container {
-        position: absolute;
-        top: 0;
-        left: 0;
-        padding: 10px;
-        }
-        .table td:nth-child(4) {
-        white-space: nowrap;
-        }
-        .table td:nth-child(7) {
-        width: calc(50px + 100%); /* Adjust the width as needed */
-        max-width: calc(50px + 100%);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        }
-        .table td:nth-child(3) {
-        width: calc(300px + 100%); /* Adjust the width as needed */
-        max-width: calc(300px + 100%);
-        }
-        .logo-container img {
-        max-height: 50px; /* Adjust the max-height as needed */
-        }
-        /* Ẩn nút khi in */
-        @media print {
-        .play-btn.print-hidden {
-        display: none !important;
-        }
-        /* .table td:nth-child(7) {
-        color: transparent;
-        }*/
-        .print-hidden {
-        color: transparent;
-        }
-        }
-     </style>
-</head>
+        font-size: 0.85rem;
+      }
 
-<body>
-    <!-- <div class="logo-container">
-         <img src="path/to/your/logo.png" alt="Logo" />
-         </div> -->
-    <!-- <h1 id="lessonTitle"></h1> -->
-    <div class="header-container">
-        <div class="logo-container">
-            <img src="logo.png" alt="Logo" />
-        </div>
-        <h1 id="lessonTitle">Lesson Title</h1>
-    </div>
+      .table th,
+      .table td {
+        padding: 10px;
+        border-bottom: 1px solid #e2e8f0;
+        vertical-align: middle;
+      }
+
+      .table th {
+        background-color: #edf2f7;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        color: #4a5568;
+      }
+
+      .old-device {
+        color: #e53e3e;
+      }
+
+      .btn-delete {
+        background-color: #e53e3e;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        font-size: 0.8rem;
+        border-radius: 4px;
+      }
+
+      .btn-delete:hover {
+        background-color: #c53030;
+      }
+
+      .custom-btn {
+        background-color: #3182ce;
+        color: #fff;
+        border-radius: 4px;
+      }
+
+      .custom-btn:hover {
+        background-color: #2b6cb0;
+      }
+
+      .custom-btn-delete {
+        background-color: #e53e3e;
+        color: #fff;
+        border-radius: 4px;
+      }
+
+      .custom-btn-delete:hover {
+        background-color: #c53030;
+      }
+
+      .custom-btn-restart {
+        background-color: #f6e05e;
+        color: #2d3748;
+        border-radius: 4px;
+      }
+
+      .custom-btn-restart:hover {
+        background-color: #ecc94b;
+      }
+
+      .status-circle {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 5px;
+      }
+
+      .btn-custom-connect {
+        background-color: #38a169;
+        border: none;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+
+      .btn-custom-connect img {
+        width: 16px;
+        height: 16px;
+      }
+
+      .btn-custom-delete {
+        background-color: #e53e3e;
+        border: none;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+
+      .btn-custom-delete img {
+        width: 16px;
+        height: 16px;
+      }
+
+      .account-section {
+        margin-top: 30px;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      }
+
+      .account-section h3 {
+        font-size: 1.2rem;
+        margin-bottom: 15px;
+        color: #2d3748;
+      }
+
+      .progress {
+        border-radius: 4px;
+        height: 10px;
+        margin-top: 7px;
+      }
+
+      .offline-bg {
+        background-color: #fed7d7;
+      }
+
+      .progress-chart {
+        width: 30px;
+        height: 30px;
+        display: inline-block;
+      }
+
+      .usage-info {
+        font-size: 0.8rem;
+        color: #4a5568;
+      }
+
+      .badge {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
     <div class="container">
-        <table class="table table-striped table-bordered" cellspacing="0" width="100%">
-            <thead>
-                <tr>
-                    <th>*</th>
-                    <th>Từ</th>
-                    <th>Loại từ</th>
-                    <th>Phát âm</th>
-                    <th>Definition</th>
-                    <th>Ví dụ</th>
-                    <th>Ý nghĩa (VI)</th>
-                </tr>
-            </thead>
-            <tbody id="wordTable"></tbody>
-        </table>
+      <h1>Dashboard</h1>
+      <div class="summary">
+        <div class="d-flex align-items-center gap-2">
+          <div class="p-2 text-bg-warning">CPU: {{ cpu_percent }}%</div>
+          <div class="p-2 text-bg-primary">Memory: {{ memory_used }} GB / {{ memory_total }} GB ({{ memory_percent }}%)</div>
+          <div class="p-2 text-bg-secondary">IPs: {{ total_ips }}</div>
+          <form action="/delete-ips" method="post" class="m-0" onsubmit="return confirm('Are you sure you want to delete all IPs?');">
+            <button type="submit" class="btn custom-btn-delete"> Delete <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-x-lg ms-1" viewBox="0 0 16 16">
+                        <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z" />
+                      </svg></button>
+          </form>
+        </div>
+      </div>
+      <div class="account-section">
+        <h2>Devices</h2> {% if devices %} <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>Country</th>
+              <th>IP</th>
+              <th>Connect</th>
+              <th>Sys</th>
+			  <th>Thread</th>
+              <th>Client</th>
+			  <th>Traffic</th>
+              <th>R/TO</th>
+              <th>Last Update</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody> {% for device in devices %} {% set last_update_time = device.last_update|datetime_from_timestamp %} {% set is_old = last_update_time and (now|datetime_from_timestamp - last_update_time).total_seconds() > 900 %} {% set parts = device.id.split('-') %} <tr {% if is_old %}class="table-danger" {% endif %}>
+              <td>{{ loop.index }}</td>
+              <td>
+                <span class="fi fi-{{ device.country_code|lower }}"></span> {{ device.country_code or 'N/A' }}
+              </td>
+              <td>{{ device.ip or 'N/A' }}</td>
+              <td> {% if device.ip is not none %} <button type="button" onclick="createRDPFile('{{device.ip}}', '{{device.id}}')" class="btn custom-btn btn-sm d-inline-flex align-items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-right-short" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8" />
+                  </svg>
+                </button> {% else %} N/A {% endif %} </td>
+              <td> {% if device.cpu_percent is not none %} 
+                <div class="progress-chart">
+                  <canvas id="chartcpu{{ loop.index }}"></canvas>
+                </div>
+                <div class="usage-info">
+                  <span id="threadcpu{{ loop.index }}"></span>
+                </div>
+              {% else %} N/A {% endif %}
+              </td>
+			  <td> {% if device.currentThread is not none and device.totalThread is not none %}
+                <div class="progress-chart">
+                  <canvas id="chart{{ loop.index }}"></canvas>
+                </div>
+                <div class="usage-info">
+                  <span id="thread{{ loop.index }}"></span>
+                </div>
+              {% else %} N/A {% endif %}
+              </td>
+              <td>
+                {{ parts[0]|upper or 'N/A' }} <span class="badge" style="background-color: {% if not parts[1] %}#718096{% elif parts[1]|lower == 'a' %}#d69e2e{% elif parts[1]|upper == 'PRO' %}#3182ce{% else %}#38a169{% endif %}">
+        {% if not parts[1] %}N{% elif parts[1]|lower == 'a' %}A{% elif parts[1]|upper == 'PRO' %}P{% else %}{{parts[1]|upper}}{% endif %}
+    </span>
+              </td>
+			  <td>
+                {% if device.proxyTraffic is not none and device.bypassTraffic is not none %}
+                {{ device.proxyTraffic|round(2) }} GB (↓{{ device.bypassTraffic|round(2) }} GB)
+                {% else %}
+                N/A
+                {% endif %}
+            </td>
+              <td> {% if device.runtime %} {{ device.runtime|run_time }} {% else %} N/A {% endif %} / {{ device.counter5 or 'N/A' }}s</td>
+              <td> {% if device.last_update %} {{ last_update_time|time_ago }} {% else %} N/A {% endif %} </td>
+              <td>
+                <div class="d-flex gap-2">
+                  <form action="/device" method="delete">
+                    <input type="hidden" name="id" value="{{ device.id }}">
+                    <button class="btn custom-btn-delete btn-sm d-inline-flex align-items-center" type="submit">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+  <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+</svg>
+                    </button>
+                  </form>
+                  <form action="/device" method="patch">
+                    <input type="hidden" name="id" value="{{ device.id }}">
+                    <input type="hidden" name="restart" value="true">
+                    <button class="btn custom-btn-restart btn-sm d-inline-flex align-items-center" type="submit">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/>
+  <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/>
+</svg>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr> {% endfor %} </tbody>
+        </table> {% else %} <p>No devices found.</p> {% endif %}
+      </div>
     </div>
     <script>
-    const databaseURL = "https://nieng-9b82a-default-rtdb.asia-southeast1.firebasedatabase.app";
+      function createRDPFile(ip, pub) {
+        const username = "administrator";
+        const rdpContent = `
+full address:s:${ip}:22
+username:s:${username}
+prompt for credentials:i:1
+authentication level:i:2
+screen mode id:i:2
+desktopwidth:i:1920
+desktopheight:i:1080
+session bpp:i:32
+`.trim();
+        const blob = new Blob([rdpContent], {
+          type: "text/plain"
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${pub}_${ip}.rdp`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
 
-    var urlParams = new URLSearchParams(window.location.search);
-    var userId = urlParams.get("userid");
-    var groupId = urlParams.get("groupid");
-    var lessonId = urlParams.get("lessonid");
-    var columnsToHide = urlParams.get("column");
-    var printsToHide = urlParams.get("print");
-    var sortParam = urlParams.get("sort");
-
-    if (columnsToHide) {
-        columnsToHide = atob(columnsToHide);
-    }
-
-    if (printsToHide) {
-        printsToHide = atob(printsToHide);
-    }
-
-
-    displayData(userId, groupId, lessonId, columnsToHide, printsToHide, sortParam);
-
-    function displayData(userId, groupId, lessonId, columnsToHide, printsToHide, sortParam) {
-        fetch(`${databaseURL}/users/${userId}/groups/${groupId}/lessons/${lessonId}/words.json`)
-            .then(response => response.json())
-            .then(data => {
-                if (!data) return; // Handle case where data is null
-                let wordList = Object.values(data);
-
-                if (sortParam) {
-                    if (sortParam === "0") {
-                        wordList.sort((a, b) => a.time - b.time);
-                    } else if (sortParam === "1") {
-                        wordList.sort((a, b) => a.word.localeCompare(b.word));
-                    }
-                }
-
-                let wordListHTML = "";
-                let count = 1;
-                const hidenPrints = printsToHide ? printsToHide.split(",") : [];
-                const printsAsIntegers = hidenPrints.map(num => parseInt(num));
-
-                wordList.forEach(wordData => {
-                    wordListHTML += "<tr>";
-                    wordListHTML += `<td>${count}</td>`;
-                    if (columnsToHide && columnsToHide.split(",").includes("1")) {
-                        wordListHTML += "<td colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td class='word-col'><button class='play-btn word-play-btn print-hidden' data-audio='${wordData.usVoice}'><i class='fas fa-play'></i></button><strong>${wordData.word}</strong></td>`;
-                    }
-                    if (columnsToHide && columnsToHide.split(",").includes("2")) {
-                        wordListHTML += "<td colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td>${wordData.wordType}</td>`;
-                    }
-                    if (columnsToHide && columnsToHide.split(",").includes("3")) {
-                        wordListHTML += "<td class='wide-column' colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td>${wordData.pronunciation}</td>`;
-                    }
-                    if (columnsToHide && columnsToHide.split(",").includes("4")) {
-                        wordListHTML += "<td colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td>${wordData.meaning}</td>`;
-                    }
-                    if (columnsToHide && columnsToHide.split(",").includes("5")) {
-                        wordListHTML += "<td colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td>${wordData.eg2}</td>`;
-                    }
-                    if (columnsToHide && columnsToHide.split(",").includes("6")) {
-                        wordListHTML += "<td colspan='1'></td>";
-                    } else {
-                        wordListHTML += `<td>${wordData.eg}</td>`;
-                    }
-                    wordListHTML += "</tr>";
-                    count++;
-                });
-
-                document.getElementById("wordTable").innerHTML = wordListHTML;
-
-                // Add event listeners for play buttons
-                document.querySelectorAll(".play-btn").forEach(button => {
-                    button.addEventListener("click", () => {
-                        const audioUrl = button.getAttribute("data-audio");
-                        if (audioUrl.includes("http")) {
-                            var audio = new Audio(audioUrl);
-                            audio.play();
-                            button.innerHTML = '<i class="fas fa-pause"></i>';
-                            audio.addEventListener('ended', function() {
-                                button.innerHTML = '<i class="fas fa-play"></i>';
-                            });
-                        } else {
-                            var audio = new Audio("data:audio/mp3;base64,".concat(audioUrl));
-                            audio.play();
-                            button.innerHTML = '<i class="fas fa-pause"></i>';
-                            audio.addEventListener('ended', function() {
-                                button.innerHTML = '<i class="fas fa-play"></i>';
-                            });
-                        }
-                    });
-                });
-                const trList = document.getElementsByTagName("tr");
-                 Array.from(trList).forEach((itemTr, indexTr) => {
-                     if (indexTr > 0) {
-                         var tdList = itemTr.getElementsByTagName("td");
-                         Array.from(tdList).forEach((itemTd, indexTd) => {
-                             if (printsAsIntegers.includes(indexTd)){
-                                 itemTd.classList.add('print-hidden');
-                             }
-                         });
-                     }
-                 });
-            })
-            .catch(error => console.error("Error fetching data:", error));
-
-        fetch(`${databaseURL}/users/${userId}/groups/${groupId}/lessons/${lessonId}.json`)
-            .then(response => response.json())
-            .then(data => {
-                if (data && data.lessonName) {
-                    document.getElementById("lessonTitle").innerHTML = data.lessonName;
-                }
-            })
-            .catch(error => console.error("Error fetching lesson data:", error));
-    }
-
-    function copyData() {
-        var rows = document.getElementById("wordTable").getElementsByTagName("tr");
-
-        var clipboardData = "";
-
-        for (var i = 0; i < rows.length; i++) {
-            var row = rows[i];
-            var word = row.getElementsByTagName("td")[1].innerText;
-            var meaning = row.getElementsByTagName("td")[4].innerText;
-            var vn = row.getElementsByTagName("td")[6].innerText;
-            clipboardData += word + "\t" + meaning + "\n";
-            console.log(clipboardData);
-        }
-
-        // Tạo một textarea ẩn để sao chép dữ liệu vào
-        var textarea = document.createElement("textarea");
-        textarea.textContent = clipboardData;
-        document.body.appendChild(textarea);
-
-        // Chọn toàn bộ nội dung của textarea và sao chép vào clipboard
-        textarea.select();
-        document.execCommand("copy");
-
-        // Xóa textarea sau khi sao chép hoàn tất
-        document.body.removeChild(textarea);
-
-        console.log("Đã sao chép vào clipboard");
-    }
-
-    function copyData2() {
-        var rows = document.getElementById("wordTable").getElementsByTagName("tr");
-
-        var clipboardData = "";
-
-        for (var i = 0; i < rows.length; i++) {
-            var row = rows[i];
-            var word = row.getElementsByTagName("td")[1].innerText;
-            var meaning = row.getElementsByTagName("td")[4].innerText;
-            var vn = row.getElementsByTagName("td")[6].innerText;
-            clipboardData += word + "\t" + meaning + "[" + vn + "]" + "\n";
-            console.log(clipboardData);
-        }
-
-        // Tạo một textarea ẩn để sao chép dữ liệu vào
-        var textarea = document.createElement("textarea");
-        textarea.textContent = clipboardData;
-        document.body.appendChild(textarea);
-
-        // Chọn toàn bộ nội dung của textarea và sao chép vào clipboard
-        textarea.select();
-        document.execCommand("copy");
-
-        // Xóa textarea sau khi sao chép hoàn tất
-        document.body.removeChild(textarea);
-
-        console.log("Đã sao chép vào clipboard");
-    }
-
-    function showCopySetup() {
-        var userInput = prompt("Enter Format:");
-        if (userInput === null || userInput.trim() === "") {
-            alert("Please enter some text!");
-        } else {
-            console.log("User input:", userInput);
-            const arr = userInput.split('|');
-
-
-            var rows = document.getElementById("wordTable").getElementsByTagName("tr");
-
-            var clipboardData = "";
-
-            for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                arr.forEach(function(item) {
-                    clipboardData += row.getElementsByTagName("td")[parseInt(item.trim())].innerText + "\t";
-                });
-                clipboardData += "\n";
-                console.log(clipboardData);
-            }
-
-            // Tạo một textarea ẩn để sao chép dữ liệu vào
-            var textarea = document.createElement("textarea");
-            textarea.textContent = clipboardData;
-            document.body.appendChild(textarea);
-
-            // Chọn toàn bộ nội dung của textarea và sao chép vào clipboard
-            textarea.select();
-            document.execCommand("copy");
-
-            // Xóa textarea sau khi sao chép hoàn tất
-            document.body.removeChild(textarea);
-
-            console.log("Đã sao chép vào clipboard");
-        }
-    }
-
-    document
-        .addEventListener("keydown",
-            function(event) {
-                if (event.key === "q") {
-                    event.preventDefault();
-                    copyData();
-                }
-
-                if (event.key === "w") {
-                    event.preventDefault();
-                    copyData2();
-                }
-
-                if (event.key === "e") {
-                    event.preventDefault();
-                    (function() {
-                        showCopySetup();
-                    })();
-
-                }
+      document.querySelectorAll('form[method="delete"]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          const id = this.querySelector('input[name="id"]').value;
+          if (confirm('Are you sure you want to delete this device?')) {
+            fetch(`/device?id=${encodeURIComponent(id)}`, {
+              method: 'DELETE'
+            }).then(response => response.json()).then(data => {
+              alert(data.message);
+              window.location.reload();
+            }).catch(error => {
+              alert('Error: ' + error.message);
             });
-    </script>
-</body>
+          }
+        });
+      });
 
+      document.querySelectorAll('form[method="patch"]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          const id = this.querySelector('input[name="id"]').value;
+          if (confirm('Are you sure you want to restart this device?')) {
+            fetch(`/device`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                id: id,
+                restart: true
+              })
+            }).then(response => response.json()).then(data => {
+              alert(data.message);
+              window.location.reload();
+            }).catch(error => {
+              alert('Error: ' + error.message);
+            });
+          }
+        });
+      });
+	  
+	  
+	  
+	  
+
+      function createThreadChart(chartId, currentThread, totalThread, threadId) {
+        const ctx = document.getElementById(chartId).getContext('2d');
+        let chartStatus = Chart.getChart(chartId);
+        if (chartStatus) {
+          chartStatus.destroy();
+        }
+
+        const progress = (currentThread / totalThread) * 100 || 0;
+        const data = progress === 100 ? [100] : [progress, 100 - progress];
+        const backgroundColors = progress === 100 ? ['#eb4d4b'] : ['#eb4d4b', '#e2e8f0'];
+
+        new Chart(ctx, {
+          type: 'pie',
+          data: {
+            datasets: [{
+              data: data,
+              backgroundColor: backgroundColors,
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            rotation: Math.PI,
+            circumference: 360,
+            plugins: {
+              legend: {
+                display: false
+              },
+              tooltip: {
+                enabled: false
+              }
+            }
+          }
+        });
+
+        document.getElementById(threadId).textContent = `${currentThread || 0}/${totalThread || 0}`;
+      }
+
+      function createRamChart(chartId, currentRam, totalRam, threadId) {
+        const ctx = document.getElementById(chartId).getContext('2d');
+        let chartStatus = Chart.getChart(chartId);
+        if (chartStatus) {
+          chartStatus.destroy();
+        }
+
+        const progress = (currentRam / totalRam) * 100 || 0;
+        const data = progress === 100 ? [100] : [progress, 100 - progress];
+        const backgroundColors = progress === 100 ? ['#eb4d4b'] : ['#eb4d4b', '#e2e8f0'];
+
+        new Chart(ctx, {
+          type: 'pie',
+          data: {
+            datasets: [{
+              data: data,
+              backgroundColor: backgroundColors,
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            rotation: Math.PI,
+            circumference: 360,
+            plugins: {
+              legend: {
+                display: false
+              },
+              tooltip: {
+                enabled: false
+              }
+            }
+          }
+        });
+
+        const ramUsedGB = (currentRam || 0) / 1024;
+        const ramTotalGB = (totalRam || 0) / 1024;
+        
+        document.getElementById(threadId).textContent = `${ramUsedGB.toFixed(1)}GB / ${ramTotalGB.toFixed(1)}GB`;
+      }
+
+      function createSysChart(chartId, cpuPercent, ramPercent, threadId) {
+		  const data = {
+		  datasets: [{
+			data: [
+			  cpuPercent,        // CPU Used
+			  100 - cpuPercent,  // CPU Free
+			  ramPercent,        // RAM Used
+			  100 - ramPercent   // RAM Free
+			],
+			backgroundColor: [
+			  '#eb4d4b',   // CPU Used (xanh dương)
+			  '#e2e8f0',   // CPU Free (xanh nhạt)
+			  '#28a745',   // RAM Used (xanh lá)
+			  '#e2e8f0'    // RAM Free (xanh nhạt)
+			],
+			borderWidth: 0
+		  }]
+		};
+		const config = {
+		  type: 'doughnut',
+		  data: data,
+		  options: {
+			rotation: -180, // Xoay để CPU bắt đầu từ bên phải
+			circumference: 360, // Đầy đủ 360 độ
+			cutout: '0%', // Độ rỗng bên trong
+			plugins: {
+              legend: {
+                display: false
+              },
+              tooltip: {
+                enabled: false
+              }
+            }
+		  }
+		};
+	  
+	  
+	  
+        const ctx = document.getElementById(chartId).getContext('2d');
+        let chartStatus = Chart.getChart(chartId);
+        if (chartStatus) {
+          chartStatus.destroy();
+        }
+        
+
+        new Chart(ctx, config);
+
+        document.getElementById(threadId).textContent = `C:${(cpuPercent || 0).toFixed(1)}%-R:${(ramPercent || 0).toFixed(1)}%`;
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+  {% if devices %}
+    {% for device in devices %}
+      {% if device.currentThread is not none and device.totalThread is not none %}
+        createThreadChart('chart{{ loop.index }}', {{ device.currentThread|default(0) }}, {{ device.totalThread|default(0) }}, 'thread{{ loop.index }}');
+      {% else %}
+        document.getElementById('thread{{ loop.index }}').textContent = 'N/A';
+      {% endif %}
+      {% if device.cpu_percent is not none and device.ram_used is not none and device.ram_total is not none and device.ram_total > 0 %}
+  createSysChart(
+    'chartcpu{{ loop.index }}',
+    {{ device.cpu_percent|default(0) }},
+    {{ (device.ram_used * 100 / device.ram_total)|round(1) }},
+    'threadcpu{{ loop.index }}'
+  );
+{% else %}
+  document.getElementById('threadcpu{{ loop.index }}').textContent = 'N/A';
+{% endif %}
+    {% endfor %}
+  {% endif %}
+});
+    </script>
+  </body>
 </html>
