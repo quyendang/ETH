@@ -585,12 +585,12 @@
             
             // Define preset formats
             const presetFormats = [
-                { name: 'Word + Meaning', format: '1-t-4', description: 'word + tab + meaning' },
-                { name: 'Word + Type + Meaning', format: '1-t-2-t-4', description: 'word + tab + type + tab + meaning' },
-                { name: 'Word + Meaning + Example', format: '1-t-4-t-5', description: 'word + tab + meaning + tab + example' },
-                { name: 'Word + Meaning + [Translate]', format: '1-t-4-[6]', description: 'word + tab + meaning + [translate]' },
-                { name: 'Word + (Type) + Meaning + Example', format: '1-(-2-)-t-4-t-5', description: 'word + (type) + tab + meaning + tab + example' },
-                { name: 'Word + IPA + Meaning', format: '1-t-3-t-4', description: 'word + tab + IPA + tab + meaning' }
+                { name: 'Word + Meaning', format: '2-t-5', description: 'word + tab + meaning' },
+                { name: 'Word + Type + Meaning', format: '2-t-3-t-5', description: 'word + tab + type + tab + meaning' },
+                { name: 'Word + Meaning + Example', format: '2-t-5-t-6', description: 'word + tab + meaning + tab + example' },
+                { name: 'Word + Meaning + [Translate]', format: '2-t-5-[7]', description: 'word + tab + meaning + [translate]' },
+                { name: 'Word + (Type) + Meaning + Example', format: '2-(-3-)-t-5-t-6', description: 'word + (type) + tab + meaning + tab + example' },
+                { name: 'Word + IPA + Meaning', format: '2-t-4-t-5', description: 'word + tab + IPA + tab + meaning' }
             ];
             
             // Create preset buttons
@@ -658,7 +658,7 @@
             const customDesc = document.createElement('p');
             customDesc.innerHTML = `
                 <strong>Format Guide:</strong><br>
-                • Numbers: 1=Word, 2=Type, 3=IPA, 4=Meaning, 5=Example, 6=Translate<br>
+                • Numbers: 1=Index, 2=Word, 3=Type, 4=IPA, 5=Meaning, 6=Example, 7=Translate<br>
                 • <strong>t</strong> = Tab separator<br>
                 • <strong>-</strong> = Separator between elements<br>
                 • <strong>()</strong> = Wrap content in parentheses<br>
