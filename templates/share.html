@@ -290,35 +290,67 @@
             audio.play().catch(err => console.error("Playback error:", err));
         }
 
-        // Function to handle print column hiding
+        // // Function to handle print column hiding
+        // function handlePrintColumns() {
+        //     console.log('Handling print columns:', hideColumnsPrint);
+        //     hideColumnsPrint.forEach(col => {
+        //         const colIndex = col + 1; // +1 because CSS nth-child is 1-indexed
+        //         const cells = document.querySelectorAll(`.table th:nth-child(${colIndex}), .table td:nth-child(${colIndex})`);
+                
+        //         console.log(`Hiding column ${colIndex}, found ${cells.length} cells`);
+                
+        //         cells.forEach(cell => {
+        //             // Hide text completely but keep column width
+        //             cell.style.setProperty('color', 'transparent', 'important');
+        //             cell.style.setProperty('background-color', 'transparent', 'important');
+                    
+        //             // Add print-specific class for CSS override
+        //             cell.classList.add('print-hidden');
+        //         });
+        //     });
+        // }
+
+        // // Function to restore columns after print
+        // function restorePrintColumns() {
+        //     console.log('Restoring print columns');
+        //     hideColumnsPrint.forEach(col => {
+        //         const colIndex = col + 1;
+        //         const cells = document.querySelectorAll(`.table th:nth-child(${colIndex}), .table td:nth-child(${colIndex})`);
+                
+        //         cells.forEach(cell => {
+        //             // Restore original styling
+        //             cell.style.removeProperty('color');
+        //             cell.style.removeProperty('background-color');
+        //             cell.classList.remove('print-hidden');
+        //         });
+        //     });
+        // }
+
+
         function handlePrintColumns() {
             console.log('Handling print columns:', hideColumnsPrint);
             hideColumnsPrint.forEach(col => {
                 const colIndex = col + 1; // +1 because CSS nth-child is 1-indexed
-                const cells = document.querySelectorAll(`.table th:nth-child(${colIndex}), .table td:nth-child(${colIndex})`);
+                const cells = document.querySelectorAll(`.table td:nth-child(${colIndex})`); // Target only td elements
                 
-                console.log(`Hiding column ${colIndex}, found ${cells.length} cells`);
+                console.log(`Hiding column ${colIndex} content, found ${cells.length} cells`);
                 
                 cells.forEach(cell => {
                     // Hide text completely but keep column width
                     cell.style.setProperty('color', 'transparent', 'important');
                     cell.style.setProperty('background-color', 'transparent', 'important');
-                    
-                    // Add print-specific class for CSS override
                     cell.classList.add('print-hidden');
                 });
             });
         }
 
-        // Function to restore columns after print
         function restorePrintColumns() {
             console.log('Restoring print columns');
             hideColumnsPrint.forEach(col => {
                 const colIndex = col + 1;
-                const cells = document.querySelectorAll(`.table th:nth-child(${colIndex}), .table td:nth-child(${colIndex})`);
+                const cells = document.querySelectorAll(`.table td:nth-child(${colIndex})`);
                 
                 cells.forEach(cell => {
-                    // Restore original styling
                     cell.style.removeProperty('color');
                     cell.style.removeProperty('background-color');
                     cell.classList.remove('print-hidden');
