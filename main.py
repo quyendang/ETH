@@ -86,7 +86,7 @@ async def process_lesson(request: Request, short_id: str, c: str, p: str):
             supabase.table("words")
             .select("*")
             .eq("lesson_id", lesson_id)
-            .order("latest_update", desc=True)
+            .order("latest_update", desc=False)
             .execute()
         )
 
