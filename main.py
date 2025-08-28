@@ -2,18 +2,22 @@ import os
 import logging
 import requests
 import random
+import json
+import base64
 from datetime import datetime
-from fastapi import FastAPI, Query, Request, Form
+from fastapi import FastAPI, Query, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
-
+from typing import Optional, List, Dict
+import jwt
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 logging.basicConfig(level=logging.INFO)
-
+APP_ID = "6749817128"  # cố định theo yêu cầu
+ASC_API_BASE = "https://api.appstoreconnect.apple.com/v1"
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 
@@ -213,6 +217,139 @@ def update_elevenlabs_keys():
         logging.info("Updated Elevenlabs keys successfully")
     except Exception as e:
         logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
+
+
+def _load_private_key() -> str:
+    """
+    Trả về private key (.p8) dưới dạng string.
+    Ưu tiên ASC_P8_KEY (raw hoặc base64). Nếu không có, dùng ASC_P8_PATH.
+    """
+    if P8_INLINE:
+        # thử decode base64, nếu fail thì coi như raw
+        try:
+            return base64.b64decode(P8_INLINE).decode("utf-8")
+        except Exception:
+            return P8_INLINE
+    if not P8_PATH:
+        raise RuntimeError("Missing ASC_P8_PATH or ASC_P8_KEY")
+    with open(P8_PATH, "r") as f:
+        return f.read()
+
+
+def make_jwt() -> str:
+    if not ISSUER_ID or not KEY_ID:
+        raise RuntimeError("Missing ASC_ISSUER_ID or ASC_KEY_ID")
+    private_key = _load_private_key()
+    now = int(time.time())
+    payload = {
+        "iss": ISSUER_ID,
+        "exp": now + 20 * 60,  # token tối đa 20 phút
+        "aud": "appstoreconnect-v1",
+    }
+    headers = {
+        "kid": KEY_ID,
+        "alg": "ES256",
+        "typ": "JWT",
+    }
+    return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
+
+
+def asc_get(url: str, token: str) -> Dict:
+    r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return r.json()
+
+
+def fetch_all_builds_for_app(app_id: str, token: str, limit: int = 200) -> List[Dict]:
+    """
+    Lấy tất cả builds qua phân trang (links.next).
+    """
+    url = f"{ASC_API_BASE}/builds?filter[app]={app_id}&include=preReleaseVersion&limit={limit}"
+    builds = []
+    while True:
+        data = asc_get(url, token)
+        builds.extend(data.get("data", []))
+        next_link = data.get("links", {}).get("next")
+        if not next_link:
+            break
+        url = next_link
+    return builds
+
+
+def parse_iso(ts: Optional[str]):
+    from datetime import datetime
+    if not ts:
+        return None
+    try:
+        # ví dụ: "2024-08-20T10:11:12Z"
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def version_key(v: Optional[str]):
+    """
+    Chuyển "1.10.3" -> (1,10,3) để sort; không phụ thuộc packaging.
+    """
+    if not v:
+        return tuple()
+    parts = []
+    for p in v.split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            # nếu có hậu tố (beta, rc), đẩy xuống sau số
+            parts.append(float("inf"))
+    return tuple(parts)
+
+
+def pick_latest_build(builds: List[Dict]) -> Optional[Dict]:
+    if not builds:
+        return None
+
+    # Ưu tiên build VALID & chưa hết hạn
+    valid = [
+        b for b in builds
+        if b.get("attributes", {}).get("processingState") == "VALID"
+        and b.get("attributes", {}).get("expired") is False
+    ]
+    pool = valid if valid else builds
+
+    def sort_key(b: Dict):
+        attr = b.get("attributes", {})
+        up = parse_iso(attr.get("uploadedDate"))  # datetime hoặc None
+        ver = version_key(attr.get("version"))
+        try:
+            bn = int(attr.get("buildNumber", "0"))
+        except ValueError:
+            bn = 0
+        # sort theo uploadedDate trước, sau đó version, rồi buildNumber
+        return (up or parse_iso("1970-01-01T00:00:00Z"), ver, bn)
+
+    return sorted(pool, key=sort_key)[-1]
+
+
+@app.get("/build")
+def get_latest_build_version():
+    """
+    Trả về {"version": "<marketing_version>"} của build TestFlight mới nhất cho app_id 6749817128.
+    """
+    try:
+        token = make_jwt()
+        builds = fetch_all_builds_for_app(APP_ID, token)
+        latest = pick_latest_build(builds)
+        if not latest:
+            raise HTTPException(status_code=404, detail="No builds found for the app.")
+        version = latest.get("attributes", {}).get("version")
+        if not version:
+            raise HTTPException(status_code=502, detail="Latest build has no version field.")
+        return {"version": version}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 update_elevenlabs_keys()
 # Cấu hình scheduler
