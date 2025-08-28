@@ -70,7 +70,7 @@ async def process_lesson(request: Request, short_id: str, c: str, p: str):
         lesson_resp = (
             supabase.table("lessons")
             .select("id, name")
-            .eq("short_id", short_id)
+            .eq("short_id", short_id.replace("!", ""))
             .single()
             .execute()
         )
@@ -105,6 +105,10 @@ async def process_lesson(request: Request, short_id: str, c: str, p: str):
             }
             for row in response.data
         ]
+
+        # Shuffle words_list if short_id contains '!'
+        if "!" in short_id:
+            random.shuffle(words_list)
 
         # Parse params c, p
         hide_columns = [int(x) for x in c.split(",") if x.isdigit()]
