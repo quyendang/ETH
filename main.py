@@ -21,6 +21,10 @@ ASC_API_BASE = "https://api.appstoreconnect.apple.com/v1"
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 
+ISSUER_ID = os.environ.get("ASC_ISSUER_ID")
+KEY_ID = os.environ.get("ASC_KEY_ID")
+P8_PATH = os.environ.get("ASC_P8_PATH")
+P8_INLINE = os.environ.get("ASC_P8_KEY")
 if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
