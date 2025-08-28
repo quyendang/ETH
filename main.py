@@ -218,7 +218,8 @@ def update_elevenlabs_keys():
 
 
 def make_jwt():
-    private_key = base64.b64decode(P8_INLINE).decode("utf-8")
+    with open(P8_PATH, "r") as f:
+        private_key = f.read()
     now = int(time.time())
     payload = {
         "iss": ISSUER_ID,
