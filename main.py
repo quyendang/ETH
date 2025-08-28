@@ -4,6 +4,8 @@ import requests
 import random
 import json
 import base64
+import time
+import jwt
 from datetime import datetime
 from fastapi import FastAPI, Query, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse
@@ -11,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from typing import Optional, List, Dict
-import jwt
+
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
