@@ -225,7 +225,7 @@ def _load_private_key() -> str:
     if P8_INLINE:
         # thử decode base64, nếu fail thì coi như raw
         try:
-            return base64.b64decode(P8_INLINE).decode("utf-8")
+            return P8_INLINE
         except Exception:
             return P8_INLINE
     if not P8_PATH:
