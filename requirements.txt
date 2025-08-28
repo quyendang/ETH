@@ -9,3 +9,4 @@ ijson
 apscheduler
 requests
 pyjwt
+cryptography
