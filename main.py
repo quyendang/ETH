@@ -5,10 +5,10 @@ import random
 import json
 import base64
 import time
-import jwt
 from datetime import datetime
-from fastapi import FastAPI, Query, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse
+from pathlib import Path
+from fastapi import FastAPI, Query, Request, Form, HTTPException, Response
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,17 +16,12 @@ from typing import Optional, List, Dict
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
+BASE_DIR = Path(__file__).resolve().parent
+APP_ADS_PATH = BASE_DIR / "app-ads.txt"  # đổi nếu bạn để nơi khác
 logging.basicConfig(level=logging.INFO)
-APP_ID = "6749817128"  # cố định theo yêu cầu
-ASC_API_BASE = "https://api.appstoreconnect.apple.com/v1"
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 
-ISSUER_ID = os.environ.get("ASC_ISSUER_ID")
-KEY_ID = os.environ.get("ASC_KEY_ID")
-P8_PATH = os.environ.get("ASC_P8_PATH")
-P8_INLINE = os.environ.get("ASC_P8_KEY")
 if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
@@ -56,6 +51,14 @@ async def homepage(
             }
         )
     return templates.TemplateResponse("landing.html", {"request": request})
+
+@app.get("/app-ads.txt", include_in_schema=False)
+def get_app_ads():
+    if not APP_ADS_PATH.exists():
+        raise HTTPException(status_code=404, detail="app-ads.txt not found")
+    # Gợi ý thêm Cache-Control 1 ngày
+    headers = {"Cache-Control": "public, max-age=86400"}
+    return FileResponse(APP_ADS_PATH, media_type="text/plain; charset=utf-8", headers=headers)
 
 @app.get("/share", response_class=HTMLResponse)
 async def share_lesson(
@@ -152,6 +155,10 @@ async def keys_page(request: Request):
         keys = []
     return templates.TemplateResponse("key.html", {"request": request, "keys": keys})
 
+@app.get("/privacypolicy", response_class=HTMLResponse)
+async def privacypolicy_page(request: Request):
+    return templates.TemplateResponse("fasteng-privacy-policy.html", {"request": request})
+
 @app.post("/keys")
 async def add_key(
     request: Request,
@@ -216,58 +223,6 @@ def update_elevenlabs_keys():
     except Exception as e:
         logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
 
-
-def make_jwt():
-    with open(P8_PATH, "r") as f:
-        private_key = f.read()
-    now = int(time.time())
-    payload = {
-        "iss": ISSUER_ID,
-        "exp": now + 20 * 60,     # 20 phút
-        "aud": "appstoreconnect-v1"
-    }
-    headers = {
-        "kid": KEY_ID,
-        "alg": "ES256",
-        "typ": "JWT"
-    }
-    return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
-
-def asc_get(url, token):
-    r = requests.get(url, headers={"Authorization": f"Bearer {token}"})
-    r.raise_for_status()
-    return r.json()
-
-def get_app_id(token, bundle_id):
-    url = f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}"
-    data = asc_get(url, token)
-    return data["data"][0]["id"]
-
-def get_builds(token, app_id, limit=200):
-    url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&include=preReleaseVersion&limit={limit}"
-    data = asc_get(url, token)
-    return data["data"]
-
-
-@app.get("/build")
-def get_latest_build_version():
-    """
-    Trả về {"version": "<marketing_version>"} của build TestFlight mới nhất cho app_id 6749817128.
-    """
-    try:
-        token = make_jwt()
-        builds = get_builds(token, APP_ID)
-        latest = parse_latest(builds)
-        if not latest:
-            raise HTTPException(status_code=404, detail="No builds found for the app.")
-        version = latest.get("attributes", {}).get("version")
-        if not version:
-            raise HTTPException(status_code=502, detail="Latest build has no version field.")
-        return {"version": version}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/{short_id}", response_class=HTMLResponse)
 async def share_lesson_by_short_id(
