@@ -155,9 +155,13 @@ async def keys_page(request: Request):
         keys = []
     return templates.TemplateResponse("key.html", {"request": request, "keys": keys})
 
-@app.get("/privacypolicy", response_class=HTMLResponse)
+@app.get("/privacy", response_class=HTMLResponse)
 async def privacypolicy_page(request: Request):
     return templates.TemplateResponse("fasteng-privacy-policy.html", {"request": request})
+
+@app.get("/terms", response_class=HTMLResponse)
+async def privacypolicy_page(request: Request):
+    return templates.TemplateResponse("fasteng-terms.html", {"request": request})
 
 @app.post("/keys")
 async def add_key(
