@@ -50,6 +50,16 @@ class ClearResult(BaseModel):
     auth_deleted: bool
     note: str | None = None
 
+class UsersListResponse(BaseModel):
+    page: int
+    per_page: int
+    total: int
+    users: list[dict]
+
+class UserStatsResponse(BaseModel):
+    userid: str
+    email: str | None = None
+    counts: Dict[str, int]
 
 @app.get("/", response_class=HTMLResponse)
 async def homepage(
@@ -84,6 +94,41 @@ def get_app_ads():
     headers = {"Cache-Control": "public, max-age=86400"}
     return FileResponse(APP_ADS_PATH, media_type="text/plain; charset=utf-8", headers=headers)
 
+
+@app.get("/users", response_model=UsersListResponse)
+async def list_users_rpc(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(100, ge=1, le=1000),
+    search: str | None = Query(None, description="Lọc theo email (ILIKE)"),
+    authorized: bool = Depends(verify_api_key),
+):
+    try:
+        payload: Dict[str, Any] = {"p_page": page, "p_per_page": per_page, "p_search": search}
+        resp = supabase_admin.rpc("admin_list_users", payload).execute()
+        data = getattr(resp, "data", None)
+        if not isinstance(data, dict):
+            # tuỳ lib có thể trả string json; xử lý mềm dẻo
+            import json as _json
+            data = _json.loads(data) if isinstance(data, str) else {}
+        return UsersListResponse(**data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"admin_list_users failed: {e}")
+
+@app.get("/user", response_model=UserStatsResponse)
+async def get_user_stats_rpc(
+    userid: str = Query(..., description="Supabase Auth user id (UUID)"),
+    authorized: bool = Depends(verify_api_key),
+):
+    try:
+        # (khuyến nghị) validate UUID như /remove
+        resp = supabase_admin.rpc("admin_get_user_stats", {"target_user_id": userid}).execute()
+        data = getattr(resp, "data", None)
+        if not isinstance(data, dict):
+            import json as _json
+            data = _json.loads(data) if isinstance(data, str) else {}
+        return UserStatsResponse(**data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"admin_get_user_stats failed: {e}")
 
 @app.delete("/remove", response_model=ClearResult)
 async def remove_user(
