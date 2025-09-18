@@ -50,6 +50,8 @@ class ClearResult(BaseModel):
     auth_deleted: bool
     note: str | None = None
 
+
+
 class UserCounts(BaseModel):
     groups: int
     lessons: int
@@ -138,6 +140,39 @@ async def get_user_stats_rpc(
         return UserStatsResponse(**data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"admin_get_user_stats failed: {e}")
+
+@app.delete("/removeData", response_model=ClearResult)
+async def remove_user_data(
+    userid: str = Query(..., description="Supabase Auth user id (UUID)"),
+    authorized: bool = Depends(verify_api_key),
+):
+    """
+    Xoá toàn bộ dữ liệu user bằng RPC admin_clear_user_data(target_user_id uuid)
+    """
+    if not UUID_RE.match(userid):
+        raise HTTPException(status_code=422, detail="Invalid UUID format for userid")
+
+    # 1) RPC xoá dữ liệu ứng dụng (security definer yêu cầu service_role)
+    try:
+        rpc_resp = supabase_admin.rpc("admin_clear_user_data", {"target_user_id": userid}).execute()
+        if hasattr(rpc_resp, "model_dump"):
+            raw = rpc_resp.model_dump()
+            rpc_data = raw.get("data", raw)
+        else:
+            rpc_data = getattr(rpc_resp, "data", None) or {}
+    except Exception as e:
+        # Không xoá Auth nếu RPC thất bại để tránh mồ côi dữ liệu
+        raise HTTPException(status_code=500, detail=f"RPC admin_clear_user_data failed: {e}")
+
+    return ClearResult(
+        status="ok",
+        userid=userid,
+        rpc_result=rpc_data if isinstance(rpc_data, dict) else {"data": rpc_data},
+        auth_deleted=False,
+        note="RPC only.",
+    )
+
+
 
 @app.delete("/remove", response_model=ClearResult)
 async def remove_user(
