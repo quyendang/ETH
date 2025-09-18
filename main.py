@@ -50,11 +50,21 @@ class ClearResult(BaseModel):
     auth_deleted: bool
     note: str | None = None
 
+class UserCounts(BaseModel):
+    groups: int
+    lessons: int
+    words: int
+
+class UserWithCounts(BaseModel):
+    id: str
+    email: Optional[str] = None
+    counts: UserCounts
+
 class UsersListResponse(BaseModel):
     page: int
     per_page: int
     total: int
-    users: list[dict]
+    users: List[UserWithCounts]
 
 class UserStatsResponse(BaseModel):
     userid: str
@@ -103,11 +113,10 @@ async def list_users_rpc(
     authorized: bool = Depends(verify_api_key),
 ):
     try:
-        payload: Dict[str, Any] = {"p_page": page, "p_per_page": per_page, "p_search": search}
+        payload = {"p_page": page, "p_per_page": per_page, "p_search": search}
         resp = supabase_admin.rpc("admin_list_users", payload).execute()
         data = getattr(resp, "data", None)
         if not isinstance(data, dict):
-            # tuỳ lib có thể trả string json; xử lý mềm dẻo
             import json as _json
             data = _json.loads(data) if isinstance(data, str) else {}
         return UsersListResponse(**data)
