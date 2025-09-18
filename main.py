@@ -60,6 +60,7 @@ class UserCounts(BaseModel):
 class UserWithCounts(BaseModel):
     id: str
     email: Optional[str] = None
+    last_sign_in_at: Optional[str] = None
     counts: UserCounts
 
 class UsersListResponse(BaseModel):
