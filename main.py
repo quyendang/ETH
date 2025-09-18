@@ -30,7 +30,7 @@ admin_api_key = os.environ.get("ADMIN_API_KEY")
 if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
-f not supabase_service_key or not admin_api_key:
+if not supabase_service_key or not admin_api_key:
     raise ValueError("SUPABASE_SERVICE_ROLE_KEY và ADMIN_API_KEY phải được thiết lập trong biến môi trường.")
 
 supabase: Client = create_client(supabase_url, supabase_key)
