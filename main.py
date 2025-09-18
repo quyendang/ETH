@@ -5,14 +5,17 @@ import random
 import json
 import base64
 import time
+import re
 from datetime import datetime
 from pathlib import Path
-from fastapi import FastAPI, Query, Request, Form, HTTPException, Response
+from fastapi import FastAPI, Query, Request, Form, HTTPException, Response, Depends, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
-from typing import Optional, List, Dict
+from typing import Optional, List, Any, Dict
+from pydantic import BaseModel
+
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -21,11 +24,32 @@ APP_ADS_PATH = BASE_DIR / "app-ads.txt"  # đổi nếu bạn để nơi khác
 logging.basicConfig(level=logging.INFO)
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
+supabase_service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+admin_api_key = os.environ.get("ADMIN_API_KEY")
 
 if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
+f not supabase_service_key or not admin_api_key:
+    raise ValueError("SUPABASE_SERVICE_ROLE_KEY và ADMIN_API_KEY phải được thiết lập trong biến môi trường.")
+
 supabase: Client = create_client(supabase_url, supabase_key)
+supabase_admin: Client = create_client(supabase_url, supabase_service_key)
+
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+def verify_api_key(x_api_key: str | None = Header(default=None)):
+    if x_api_key != admin_api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return True
+
+class ClearResult(BaseModel):
+    status: str
+    userid: str
+    rpc_result: Dict[str, Any] | None = None
+    auth_deleted: bool
+    note: str | None = None
+
 
 @app.get("/", response_class=HTMLResponse)
 async def homepage(
@@ -59,6 +83,46 @@ def get_app_ads():
     # Gợi ý thêm Cache-Control 1 ngày
     headers = {"Cache-Control": "public, max-age=86400"}
     return FileResponse(APP_ADS_PATH, media_type="text/plain; charset=utf-8", headers=headers)
+
+
+@app.delete("/remove", response_model=ClearResult)
+async def remove_user(
+    userid: str = Query(..., description="Supabase Auth user id (UUID)"),
+    authorized: bool = Depends(verify_api_key),
+):
+    """
+    Xoá toàn bộ dữ liệu user bằng RPC admin_clear_user_data(target_user_id uuid)
+    rồi xoá user khỏi Supabase Auth (admin). Thứ tự: RPC -> Auth.
+    """
+    if not UUID_RE.match(userid):
+        raise HTTPException(status_code=422, detail="Invalid UUID format for userid")
+
+    # 1) RPC xoá dữ liệu ứng dụng (security definer yêu cầu service_role)
+    try:
+        rpc_resp = supabase_admin.rpc("admin_clear_user_data", {"target_user_id": userid}).execute()
+        if hasattr(rpc_resp, "model_dump"):
+            raw = rpc_resp.model_dump()
+            rpc_data = raw.get("data", raw)
+        else:
+            rpc_data = getattr(rpc_resp, "data", None) or {}
+    except Exception as e:
+        # Không xoá Auth nếu RPC thất bại để tránh mồ côi dữ liệu
+        raise HTTPException(status_code=500, detail=f"RPC admin_clear_user_data failed: {e}")
+
+    # 2) Xoá user khỏi Supabase Auth
+    try:
+        supabase_admin.auth.admin.delete_user(userid)
+        auth_deleted = True
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Auth delete failed after RPC succeeded: {e}")
+
+    return ClearResult(
+        status="ok",
+        userid=userid,
+        rpc_result=rpc_data if isinstance(rpc_data, dict) else {"data": rpc_data},
+        auth_deleted=auth_deleted,
+        note="RPC done first, then Auth deleted.",
+    )
 
 @app.get("/share", response_class=HTMLResponse)
 async def share_lesson(
