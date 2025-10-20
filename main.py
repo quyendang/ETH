@@ -405,7 +405,7 @@ def get_eid(version: str = "v9.2.0"):
         html_content = response.text
 
         sdkLoaderEID_match = re.search(r'var sdkLoaderEID = "([^"]+)"', html_content)
-        sdkLoaderEID2_match = re.search(r'e.includes\("([^"]+)"\)', html_content)
+        sdkLoaderEID2_match = re.search(r',e.includes\("([^"]+)"\)', html_content)
 
         sdkLoaderEID = sdkLoaderEID_match.group(1) if sdkLoaderEID_match else None
         sdkLoaderEID2 = sdkLoaderEID2_match.group(1) if sdkLoaderEID2_match else None
