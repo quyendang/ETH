@@ -385,6 +385,35 @@ def update_elevenlabs_keys():
     except Exception as e:
         logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
 
+@app.get("/geteid")
+def get_eid(version: str = "v9.2.0"):
+    try:
+        headers = {
+            'Sec-Fetch-Site': 'none',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Mode': 'navigate',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+            'Sec-Fetch-Dest': 'document'
+        }
+
+        url = f'https://googleads.g.doubleclick.net/mads/static/sdk/native/sdk-core-v40.html?sdk=afma-sdk-i-{version}'
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()  # báo lỗi nếu HTTP code != 200
+
+        html_content = response.text
+
+        sdkLoaderEID_match = re.search(r'var sdkLoaderEID = "([^"]+)"', html_content)
+        sdkLoaderEID2_match = re.search(r'f.includes\("([^"]+)"\)', html_content)
+
+        sdkLoaderEID = sdkLoaderEID_match.group(1) if sdkLoaderEID_match else None
+        sdkLoaderEID2 = sdkLoaderEID2_match.group(1) if sdkLoaderEID2_match else None
+
+        return {"sdkLoaderEID": sdkLoaderEID, "sdkLoaderEID2": sdkLoaderEID2, "version": version}
+    except Exception as e:
+        logging.error(f"Error fetching EID values: {str(e)}")
+        return {"sdkLoaderEID": "318502621", "sdkLoaderEID2": "318500618", "version": "v9.2.0"}
 
 @app.get("/{short_id}", response_class=HTMLResponse)
 async def share_lesson_by_short_id(
