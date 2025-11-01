@@ -14,6 +14,132 @@ from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from typing import Optional, List, Any, Dict
+# ==== RSI BOT (Inline) ========================================================
+import math
+from fastapi import APIRouter
+
+# --- Configuration via Environment Variables ---
+PUSHOVER_TOKEN = os.getenv("PUSHOVER_TOKEN", "")
+PUSHOVER_USER = os.getenv("PUSHOVER_USER", "")
+PUSHOVER_DEVICE = os.getenv("PUSHOVER_DEVICE", "")  # optional
+RSI_SYMBOL = os.getenv("RSI_SYMBOL", "ETHUSDT")     # Binance symbol
+RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
+RSI_CHECK_MINUTES = int(os.getenv("RSI_CHECK_MINUTES", "5"))
+
+# Timeframes to check
+_RSI_TIMEFRAMES = {"1h": "1h", "4h": "4h", "1d": "1d"}
+
+_rsi_last_state = {tf: "unknown" for tf in _RSI_TIMEFRAMES.keys()}
+_rsi_last_values = {}
+_rsi_last_run = 0.0
+
+_rsi_router = APIRouter()
+
+def _rsi_wilder(closes, period=14):
+    if len(closes) < period + 1:
+        raise ValueError("Not enough data to compute RSI")
+    gains = []
+    losses = []
+    for i in range(1, len(closes)):
+        diff = closes[i] - closes[i-1]
+        gains.append(max(diff, 0.0))
+        losses.append(max(-diff, 0.0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return float(100 - (100 / (1 + rs)))
+
+def _rsi_fetch_klines(symbol, interval, limit=200):
+    url = "https://api.binance.com/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    resp = requests.get(url, params=params, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+def _rsi_latest(symbol, interval, period):
+    kl = _rsi_fetch_klines(symbol, interval, limit=max(200, period*5))
+    closes = [float(k[4]) for k in kl]
+    rsi = _rsi_wilder(closes, period=period)
+    price = closes[-1]
+    return price, rsi
+
+def _pushover_notify(title, message):
+    if not PUSHOVER_TOKEN or not PUSHOVER_USER:
+        return
+    data = {"token": PUSHOVER_TOKEN, "user": PUSHOVER_USER, "title": title, "message": message, "priority": 0}
+    if PUSHOVER_DEVICE:
+        data["device"] = PUSHOVER_DEVICE
+    try:
+        requests.post("https://api.pushover.net/1/messages.json", data=data, timeout=15)
+    except Exception:
+        pass
+
+def _rsi_fmt(tf, price, rsi):
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "Z"
+    return f"{RSI_SYMBOL} {tf} | Price: {price:.2f} | RSI({RSI_PERIOD}): {rsi:.2f} | {ts}"
+
+def _rsi_check_once():
+    global _rsi_last_state, _rsi_last_values, _rsi_last_run
+    snap = {}
+    for tf, interval in _RSI_TIMEFRAMES.items():
+        try:
+            price, rsi = _rsi_latest(RSI_SYMBOL, interval, RSI_PERIOD)
+            snap[tf] = {"price": price, "rsi": rsi}
+            prev = _rsi_last_state.get(tf, "unknown")
+            # Alert on <30 (oversold) or >70 (overbought)
+            if rsi < 30 and prev != "oversold":
+                _pushover_notify(f"RSI Oversold {RSI_SYMBOL} {tf}", _rsi_fmt(tf, price, rsi))
+                _rsi_last_state[tf] = "oversold"
+            elif rsi > 70 and prev != "overbought":
+                _pushover_notify(f"RSI Overbought {RSI_SYMBOL} {tf}", _rsi_fmt(tf, price, rsi))
+                _rsi_last_state[tf] = "overbought"
+            elif 30 <= rsi <= 70 and prev != "normal":
+                _rsi_last_state[tf] = "normal"
+        except Exception as e:
+            snap[tf] = {"error": str(e)}
+    _rsi_last_values = snap
+    _rsi_last_run = time.time()
+    return snap
+
+@_rsi_router.get("/rsi-status")
+def rsi_status():
+    return {
+        "symbol": RSI_SYMBOL,
+        "period": RSI_PERIOD,
+        "timeframes": _RSI_TIMEFRAMES,
+        "last_run_utc": datetime.utcfromtimestamp(_rsi_last_run).strftime("%Y-%m-%d %H:%M:%S") if _rsi_last_run else None,
+        "values": _rsi_last_values,
+        "state": _rsi_last_state,
+        "check_every_minutes": RSI_CHECK_MINUTES,
+    }
+
+def init_inline_rsi(app, scheduler=None):
+    # attach routes
+    app.include_router(_rsi_router, prefix="/bots", tags=["bots"])
+    if scheduler is not None:
+        try:
+            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_eth", replace_existing=True, next_run_time=datetime.utcnow())
+        except Exception:
+            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_eth", replace_existing=True)
+    else:
+        # fallback loop (not recommended if APScheduler already exists)
+        import threading
+        def _loop():
+            while True:
+                try:
+                    _rsi_check_once()
+                except Exception:
+                    pass
+                time.sleep(RSI_CHECK_MINUTES * 60)
+        threading.Thread(target=_loop, daemon=True).start()
+# ==== /RSI BOT (Inline) =======================================================
+
+
 from pydantic import BaseModel
 
 
@@ -353,38 +479,6 @@ async def delete_key(request: Request, id: str):
         logging.error(f"[ERROR] Deleting key: {str(e)}")
         return templates.TemplateResponse("key.html", {"request": request, "error": str(e)})
 
-def update_elevenlabs_keys():
-    try:
-        # Lấy danh sách key từ ttskeys
-        response = supabase.table("ttskeys").select("*").execute()
-        keys = response.data
-
-        for key in keys:
-            if key["provider"] == "Elevenlabs":
-                # Gọi API để lấy thông tin subscription
-                api_url = "https://api.elevenlabs.io/v1/user/subscription"
-                headers = {"xi-api-key": key["api_key"]}
-                api_response = requests.get(api_url, headers=headers).json()
-
-                # Tính toán và cập nhật
-                character_limit = api_response["character_limit"]
-                character_count = api_response["character_count"]
-                balance = character_limit - character_count
-                is_live = balance > 10
-                next_reset = datetime.fromtimestamp(api_response["next_character_count_reset_unix"]).strftime('%Y-%m-%d %H:%M:%S')
-                description = f"{api_response['tier']} - {next_reset}"
-
-                # Cập nhật vào Supabase
-                supabase.table("ttskeys").update({
-                    "balance": balance,
-                    "is_live": is_live,
-                    "description": description
-                }).eq("id", key["id"]).execute()
-
-        logging.info("Updated Elevenlabs keys successfully")
-    except Exception as e:
-        logging.error(f"[ERROR] Updating Elevenlabs keys: {str(e)}")
-
 @app.get("/geteid")
 def get_eid(version: str = "v9.2.0"):
     try:
@@ -424,10 +518,9 @@ async def share_lesson_by_short_id(
 ):
     return await process_lesson(request, short_id, c, p)
     
-update_elevenlabs_keys()
 # Cấu hình scheduler
 scheduler = BackgroundScheduler()
-scheduler.add_job(update_elevenlabs_keys, 'interval', hours=1)
+init_inline_rsi(app, scheduler)
 scheduler.start()
 
 if __name__ == "__main__":
