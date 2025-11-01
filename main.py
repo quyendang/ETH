@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from typing import Optional, List, Any, Dict
-# ==== RSI BOT (Inline) ========================================================
+# ==== RSI BOT (Inline, Dual Symbols ETHUSDT+BTCUSDT) ==========================
 import math
 from fastapi import APIRouter
 
@@ -22,15 +22,21 @@ from fastapi import APIRouter
 PUSHOVER_TOKEN = os.getenv("PUSHOVER_TOKEN", "")
 PUSHOVER_USER = os.getenv("PUSHOVER_USER", "")
 PUSHOVER_DEVICE = os.getenv("PUSHOVER_DEVICE", "")  # optional
-RSI_SYMBOL = os.getenv("RSI_SYMBOL", "ETHUSDT")     # Binance symbol
+
+# You can override via env: RSI_SYMBOLS="ETHUSDT,BTCUSDT"
+_RSI_SYMBOLS = [s.strip() for s in os.getenv("RSI_SYMBOLS", "ETHUSDT,BTCUSDT").split(",") if s.strip()]
+if not _RSI_SYMBOLS:
+    _RSI_SYMBOLS = ["ETHUSDT", "BTCUSDT"]
+
 RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
 RSI_CHECK_MINUTES = int(os.getenv("RSI_CHECK_MINUTES", "5"))
 
 # Timeframes to check
 _RSI_TIMEFRAMES = {"1h": "1h", "4h": "4h", "1d": "1d"}
 
-_rsi_last_state = {tf: "unknown" for tf in _RSI_TIMEFRAMES.keys()}
-_rsi_last_values = {}
+# State & cache
+_rsi_last_state = {sym: {tf: "unknown" for tf in _RSI_TIMEFRAMES.keys()} for sym in _RSI_SYMBOLS}
+_rsi_last_values = {}   # {tf: {sym: {"price":..., "rsi":...}}}
 _rsi_last_run = 0.0
 
 _rsi_router = APIRouter()
@@ -79,37 +85,59 @@ def _pushover_notify(title, message):
     except Exception:
         pass
 
-def _rsi_fmt(tf, price, rsi):
+def _fmt_dual(tf, condition, snapshot):
+    # snapshot: {sym: {"price": p, "rsi": r}}
     ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + "Z"
-    return f"{RSI_SYMBOL} {tf} | Price: {price:.2f} | RSI({RSI_PERIOD}): {rsi:.2f} | {ts}"
+    lines = [f"TF: {tf} | Cond: {condition} | RSI({RSI_PERIOD}) | {ts}"]
+    # Keep stable order: ETHUSDT first if present
+    ordered = sorted(snapshot.items(), key=lambda kv: (0 if kv[0].upper()=="ETHUSDT" else 1, kv[0]))
+    for sym, v in ordered:
+        if "price" in v and "rsi" in v:
+            lines.append(f"{sym}: Price {v['price']:.2f} | RSI {v['rsi']:.2f}")
+        else:
+            lines.append(f"{sym}: error {v.get('error','unknown')}")
+    return "\n".join(lines)
 
 def _rsi_check_once():
     global _rsi_last_state, _rsi_last_values, _rsi_last_run
-    snap = {}
-    for tf, interval in _RSI_TIMEFRAMES.items():
-        try:
-            price, rsi = _rsi_latest(RSI_SYMBOL, interval, RSI_PERIOD)
-            snap[tf] = {"price": price, "rsi": rsi}
-            prev = _rsi_last_state.get(tf, "unknown")
-            # Alert on <30 (oversold) or >70 (overbought)
+    snap_all = {}  # per timeframe
+    for tf, interval in _RSi_TIMEFRAMES if False else _RSI_TIMEFRAMES.items():
+        tf_snap = {}
+        # Fetch both symbols
+        for sym in _RSI_SYMBOLS:
+            try:
+                price, rsi = _rsi_latest(sym, interval, RSI_PERIOD)
+                tf_snap[sym] = {"price": price, "rsi": rsi}
+            except Exception as e:
+                tf_snap[sym] = {"error": str(e)}
+
+        # Evaluate transitions per symbol; when any symbol crosses 30/70, push ONE notif per symbol that crossed,
+        # including BOTH symbols' data in the message.
+        for sym in _RSI_SYMBOLS:
+            v = tf_snap.get(sym, {})
+            rsi = v.get("rsi")
+            if rsi is None:
+                continue
+            prev = _rsi_last_state.get(sym, {}).get(tf, "unknown")
             if rsi < 30 and prev != "oversold":
-                _pushover_notify(f"RSI Oversold {RSI_SYMBOL} {tf}", _rsi_fmt(tf, price, rsi))
-                _rsi_last_state[tf] = "oversold"
+                _pushover_notify(f"RSI Oversold {tf} — {sym}", _fmt_dual(tf, "<30", tf_snap))
+                _rsi_last_state[sym][tf] = "oversold"
             elif rsi > 70 and prev != "overbought":
-                _pushover_notify(f"RSI Overbought {RSI_SYMBOL} {tf}", _rsi_fmt(tf, price, rsi))
-                _rsi_last_state[tf] = "overbought"
+                _pushover_notify(f"RSI Overbought {tf} — {sym}", _fmt_dual(tf, ">70", tf_snap))
+                _rsi_last_state[sym][tf] = "overbought"
             elif 30 <= rsi <= 70 and prev != "normal":
-                _rsi_last_state[tf] = "normal"
-        except Exception as e:
-            snap[tf] = {"error": str(e)}
-    _rsi_last_values = snap
+                _rsi_last_state[sym][tf] = "normal"
+
+        snap_all[tf] = tf_snap
+
+    _rsi_last_values = snap_all
     _rsi_last_run = time.time()
-    return snap
+    return snap_all
 
 @_rsi_router.get("/rsi-status")
 def rsi_status():
     return {
-        "symbol": RSI_SYMBOL,
+        "symbols": _RSI_SYMBOLS,
         "period": RSI_PERIOD,
         "timeframes": _RSI_TIMEFRAMES,
         "last_run_utc": datetime.utcfromtimestamp(_rsi_last_run).strftime("%Y-%m-%d %H:%M:%S") if _rsi_last_run else None,
@@ -118,16 +146,15 @@ def rsi_status():
         "check_every_minutes": RSI_CHECK_MINUTES,
     }
 
-def init_inline_rsi(app, scheduler=None):
-    # attach routes
+def init_inline_rsi_dual(app, scheduler=None):
+    # Attach routes
     app.include_router(_rsi_router, prefix="/bots", tags=["bots"])
     if scheduler is not None:
         try:
-            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_eth", replace_existing=True, next_run_time=datetime.utcnow())
+            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_dual", replace_existing=True, next_run_time=datetime.utcnow())
         except Exception:
-            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_eth", replace_existing=True)
+            scheduler.add_job(_rsi_check_once, "interval", minutes=RSI_CHECK_MINUTES, id="rsi_check_dual", replace_existing=True)
     else:
-        # fallback loop (not recommended if APScheduler already exists)
         import threading
         def _loop():
             while True:
@@ -137,7 +164,8 @@ def init_inline_rsi(app, scheduler=None):
                     pass
                 time.sleep(RSI_CHECK_MINUTES * 60)
         threading.Thread(target=_loop, daemon=True).start()
-# ==== /RSI BOT (Inline) =======================================================
+# ==== /RSI BOT (Inline, Dual Symbols) =========================================
+
 
 
 from pydantic import BaseModel
@@ -520,7 +548,7 @@ async def share_lesson_by_short_id(
     
 # Cấu hình scheduler
 scheduler = BackgroundScheduler()
-init_inline_rsi(app, scheduler)
+init_inline_rsi_dual(app, scheduler)
 scheduler.start()
 
 if __name__ == "__main__":
