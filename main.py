@@ -77,7 +77,7 @@ def _rsi_latest(symbol, interval, period):
 def _pushover_notify(title, message):
     if not PUSHOVER_TOKEN or not PUSHOVER_USER:
         return
-    data = {"token": PUSHOVER_TOKEN, "user": PUSHOVER_USER, "title": title, "message": message, "priority": 0}
+    data = {"token": PUSHOVER_TOKEN, "user": PUSHOVER_USER, "title": title, "message": message, "priority": 0, sound: "cash"}
     if PUSHOVER_DEVICE:
         data["device"] = PUSHOVER_DEVICE
     try:
