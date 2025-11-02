@@ -239,20 +239,33 @@ async def homepage(
     print: str | None = Query(None),
     sort: str | None = Query(None)
 ):
-    if userid:
-        return templates.TemplateResponse(
-            "firebase.html",
-            {
-                "request": request,
-                "userid": userid,
-                "groupid": groupid,
-                "lessonid": lessonid,
-                "column": column,
-                "print": print,
-                "sort": sort
-            }
-        )
-    return templates.TemplateResponse("landing.html", {"request": request})
+    # Yêu cầu có lessonid để sinh lesson_id
+    if not lessonid:
+        return templates.TemplateResponse("landing.html", {"request": request})
+
+    # 1) Tạo lesson_id từ lessonid + SALT bằng uuid5 (namespace DNS)
+    lesson_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, lessonid + SALT))
+
+    # 2) Decode base64 cho column/print -> list[int]
+    hide_columns = _decode_b64_csv_to_ints(column)
+    hide_columns_print = _decode_b64_csv_to_ints(print)
+
+    # 3) Render như /{short_id} nhưng truy vấn theo id
+    return await _process_lesson_by_id(request, lesson_id, hide_columns, hide_columns_print)
+    # if userid:
+    #     return templates.TemplateResponse(
+    #         "firebase.html",
+    #         {
+    #             "request": request,
+    #             "userid": userid,
+    #             "groupid": groupid,
+    #             "lessonid": lessonid,
+    #             "column": column,
+    #             "print": print,
+    #             "sort": sort
+    #         }
+    #     )
+    # return templates.TemplateResponse("landing.html", {"request": request})
 
 def _decode_b64_csv_to_ints(b64text: str | None) -> list[int]:
     """
