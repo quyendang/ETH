@@ -3,6 +3,7 @@ import logging
 import requests
 import random
 import json
+import uuid
 import base64
 import time
 import re
@@ -180,7 +181,7 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 supabase_service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 admin_api_key = os.environ.get("ADMIN_API_KEY")
-
+SALT = "548efb19-9741-4e81-9ad1-dddbe062649d"
 if not supabase_url or not supabase_key:
     raise ValueError("SUPABASE_URL và SUPABASE_KEY phải được thiết lập trong biến môi trường.")
 
@@ -252,6 +253,111 @@ async def homepage(
             }
         )
     return templates.TemplateResponse("landing.html", {"request": request})
+
+def _decode_b64_csv_to_ints(b64text: str | None) -> list[int]:
+    """
+    Giải mã base64 (URL-safe) -> chuỗi CSV -> list[int].
+    Trả về [] nếu trống/không hợp lệ.
+    """
+    if not b64text:
+        return []
+    try:
+        # Bổ sung padding cho chuẩn base64 nếu thiếu
+        padding = "=" * (-len(b64text) % 4)
+        raw = base64.urlsafe_b64decode((b64text + padding).encode("utf-8")).decode("utf-8")
+        return [int(x) for x in raw.split(",") if x.strip().isdigit()]
+    except Exception as ex:
+        logging.warning(f"[WARN] Invalid base64 '{b64text}': {ex}")
+        return []
+
+async def _process_lesson_by_id(request: Request, lesson_id: str, hide_columns: list[int], hide_columns_print: list[int]):
+    try:
+        # Lấy lesson theo id
+        lesson_resp = (
+            supabase.table("lessons")
+            .select("id, name")
+            .eq("id", lesson_id)
+            .single()
+            .execute()
+        )
+
+        if not lesson_resp.data:
+            raise ValueError(f"Lesson with id={lesson_id} not found")
+
+        db_lesson_id = lesson_resp.data["id"]
+        lesson_name = lesson_resp.data.get("name", f"Lesson {lesson_id}")
+
+        # Lấy words theo lesson_id
+        response = (
+            supabase.table("words")
+            .select("*")
+            .eq("lesson_id", db_lesson_id)
+            .order("latest_update", desc=False)
+            .execute()
+        )
+
+        words_list = [
+            {
+                "word": row.get("word"),
+                "type": row.get("type"),
+                "pronunciation": row.get("pronunciation"),
+                "meaning": row.get("meaning"),
+                "translate": row.get("translate"),
+                "example": row.get("example"),
+                "word_voice": row.get("word_voice"),
+                "eg_voice": row.get("eg_voice"),
+                "trans_voice": row.get("trans_voice"),
+                "df_voice": row.get("df_voice"),
+            }
+            for row in (response.data or [])
+        ]
+
+    except Exception as e:
+        logging.error(f"[ERROR] Fetching data by lesson_id: {str(e)}")
+        return templates.TemplateResponse(
+            "error.html",
+            {"request": request, "error": str(e)},
+        )
+
+    return templates.TemplateResponse(
+        "share.html",
+        {
+            "request": request,
+            "words": words_list,
+            "lesson_id": lesson_id,           # hiển thị lesson_id đã sinh
+            "lesson_name": lesson_name,
+            "hide_columns": hide_columns,
+            "hide_columns_print": hide_columns_print,
+        },
+    )
+
+@app.get("/firebase", response_class=HTMLResponse)
+async def firebase(
+    request: Request,
+    userid: str | None = Query(None),
+    groupid: str | None = Query(None),
+    lessonid: str | None = Query(None),
+    column: str | None = Query(None, description="Base64 URL-safe chuỗi CSV, ví dụ: 'MSwyLDQ=' ~ '1,2,4'"),
+    print: str | None = Query(None, description="Base64 URL-safe chuỗi CSV, ví dụ: 'NCw1' ~ '4,5'"),
+    sort: str | None = Query(None)
+):
+    # Yêu cầu có lessonid để sinh lesson_id
+    if not lessonid:
+        return templates.TemplateResponse(
+            "error.html",
+            {"request": request, "error": "Missing required query param: lessonid"},
+        )
+
+    # 1) Tạo lesson_id từ lessonid + SALT bằng uuid5 (namespace DNS)
+    lesson_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, lessonid + SALT))
+
+    # 2) Decode base64 cho column/print -> list[int]
+    hide_columns = _decode_b64_csv_to_ints(column)
+    hide_columns_print = _decode_b64_csv_to_ints(print)
+
+    # 3) Render như /{short_id} nhưng truy vấn theo id
+    return await _process_lesson_by_id(request, lesson_id, hide_columns, hide_columns_print)
+
 
 @app.get("/app-ads.txt", include_in_schema=False)
 def get_app_ads():
