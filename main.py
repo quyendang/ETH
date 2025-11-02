@@ -24,7 +24,7 @@ from fastapi import (
     Depends,
     APIRouter,
 )
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from supabase import create_client, Client
@@ -251,9 +251,9 @@ def _rsi_check_once():
     return snap_all
 
 
-@_rsi_router.get("/rsi-status")
+@_rsi_router.get("/rsi-status", response_class=JSONResponse)
 def rsi_status():
-    return {
+    data = {
         "symbols": RSI_SYMBOLS,
         "period": RSI_PERIOD,
         "timeframes": RSI_TIMEFRAMES,
@@ -262,6 +262,9 @@ def rsi_status():
         "state": _rsi_last_state,
         "check_every_minutes": RSI_CHECK_MINUTES,
     }
+    # Tạo JSON pretty print
+    pretty = json.dumps(data, indent=4, ensure_ascii=False)
+    return JSONResponse(content=json.loads(pretty))
 
 
 def init_inline_rsi_dual(app_: FastAPI, scheduler: Optional[BackgroundScheduler] = None):
