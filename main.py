@@ -136,6 +136,28 @@ RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
 RSI_CHECK_MINUTES = int(os.getenv("RSI_CHECK_MINUTES", "5"))
 RSI_TIMEFRAMES = {"1h": "1h", "4h": "4h", "1d": "1d"}
 
+# ------------------------------------------------------------------
+# ETH TRACKER CONFIG (dùng cho /bot/ethtracker)
+# ------------------------------------------------------------------
+ETH_TRACKER_SYMBOL = os.getenv("ETH_TRACKER_SYMBOL", "ETHUSDT")
+ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "4h")
+
+# Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
+ETH_SELL_ZONE_LOW = float(os.getenv("ETH_SELL_ZONE_LOW", "3650"))
+ETH_SELL_ZONE_HIGH = float(os.getenv("ETH_SELL_ZONE_HIGH", "3700"))
+ETH_BUY_ZONE_LOW = float(os.getenv("ETH_BUY_ZONE_LOW", "3350"))
+ETH_BUY_ZONE_HIGH = float(os.getenv("ETH_BUY_ZONE_HIGH", "3450"))
+ETH_RSI_SELL = float(os.getenv("ETH_RSI_SELL", "65"))
+ETH_RSI_BUY = float(os.getenv("ETH_RSI_BUY", "40"))
+
+# MACD tham số chuẩn TradingView
+MACD_FAST = int(os.getenv("ETH_MACD_FAST", "12"))
+MACD_SLOW = int(os.getenv("ETH_MACD_SLOW", "26"))
+MACD_SIGNAL = int(os.getenv("ETH_MACD_SIGNAL", "9"))
+
+
+
+
 # State
 _rsi_last_state: Dict[str, Dict[str, str]] = {sym: {tf: "unknown" for tf in RSI_TIMEFRAMES} for sym in RSI_SYMBOLS}
 _rsi_last_values: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -174,6 +196,64 @@ def _rsi_fetch_klines(symbol: str, interval: str, limit: int = 200):
     resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
     return resp.json()
+
+def _compute_ema_series(values: List[float], period: int) -> List[Optional[float]]:
+    """
+    Trả về list EMA cùng độ dài với values.
+    Các phần tử đầu (chưa đủ period) sẽ là None.
+    """
+    if len(values) < period:
+        raise ValueError(f"Not enough data for EMA({period})")
+
+    ema_values: List[Optional[float]] = [None] * len(values)
+    # EMA đầu = SMA
+    sma = sum(values[:period]) / period
+    ema_values[period - 1] = sma
+
+    k = 2 / (period + 1)
+    ema_prev = sma
+    for i in range(period, len(values)):
+        ema = (values[i] - ema_prev) * k + ema_prev
+        ema_values[i] = ema
+        ema_prev = ema
+
+    return ema_values
+
+
+def _macd_latest(symbol: str, interval: str, fast: int = MACD_FAST, slow: int = MACD_SLOW, signal: int = MACD_SIGNAL):
+    """
+    Tính MACD (fast, slow, signal) cho symbol/interval.
+    Trả về (macd_line, signal_line, hist) cho cây nến mới nhất.
+    """
+    # lấy nhiều dữ liệu 1 chút cho mượt
+    limit = max(200, slow * 5)
+    kl = _rsi_fetch_klines(symbol, interval, limit=limit)
+    closes = [float(k[4]) for k in kl]
+
+    if len(closes) < slow + signal + 5:
+        raise ValueError("Not enough data to compute MACD")
+
+    ema_fast = _compute_ema_series(closes, fast)
+    ema_slow = _compute_ema_series(closes, slow)
+
+    # MACD series = EMA_fast - EMA_slow
+    macd_series: List[float] = []
+    for ef, es in zip(ema_fast, ema_slow):
+        if ef is None or es is None:
+            macd_series.append(0.0)
+        else:
+            macd_series.append(ef - es)
+
+    # EMA signal trên macd_series
+    signal_series = _compute_ema_series(macd_series, signal)
+
+    macd_line = macd_series[-1]
+    signal_line = signal_series[-1]
+    if signal_line is None:
+        raise ValueError("Signal line not ready")
+
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
 
 
 def _rsi_latest(symbol: str, interval: str, period: int):
@@ -250,6 +330,109 @@ def _rsi_check_once():
     _rsi_last_values = snap_all
     _rsi_last_run = time.time()
     return snap_all
+    
+def _eth_decide_action(price: float, rsi_h4: float, macd_hist: float) -> Dict[str, str]:
+    """
+    Trả về action + lý do, theo rule:
+    - SELL: giá trong vùng SELL_ZONE & RSI cao
+    - BUY: giá trong vùng BUY_ZONE & RSI thấp
+    - còn lại: HOLD
+    Có thể mở rộng thêm điều kiện MACD sau.
+    """
+    reasons: List[str] = []
+
+    # Ưu tiên SELL trước, vì đang muốn xoay vòng chốt trên cao
+    if ETH_SELL_ZONE_LOW <= price <= ETH_SELL_ZONE_HIGH and rsi_h4 >= ETH_RSI_SELL:
+        reasons.append("Price in SELL zone & RSI H4 high")
+        reasons.append(f"Sell zone: [{ETH_SELL_ZONE_LOW}, {ETH_SELL_ZONE_HIGH}], RSI >= {ETH_RSI_SELL}")
+        action = "SELL"
+    elif ETH_BUY_ZONE_LOW <= price <= ETH_BUY_ZONE_HIGH and rsi_h4 <= ETH_RSI_BUY:
+        reasons.append("Price in BUY zone & RSI H4 low")
+        reasons.append(f"Buy zone: [{ETH_BUY_ZONE_LOW}, {ETH_BUY_ZONE_HIGH}], RSI <= {ETH_RSI_BUY}")
+        action = "BUY"
+    else:
+        action = "HOLD"
+        reasons.append("No buy/sell condition matched.")
+
+    # Gợi ý thêm: nếu hist rất nhỏ => MACD dương/yếu, sideway
+    if abs(macd_hist) < 0.5:
+        reasons.append("MACD histogram ~0 → momentum weak/sideway.")
+
+    return {
+        "action": action,
+        "reason": " | ".join(reasons),
+    }
+    
+@_rsi_router.get("/ethtracker")
+def eth_tracker():
+    """
+    Lấy giá, RSI H4, MACD H4 cho ETHUSDT,
+    quyết định action, lưu vào Supabase (table 'ethdata'),
+    và trả về JSON.
+    """
+    symbol = ETH_TRACKER_SYMBOL
+    interval = ETH_TRACKER_INTERVAL
+
+    # Lấy price + RSI H4 (tái dùng hàm có sẵn)
+    price, rsi_h4 = _rsi_latest(symbol, interval, RSI_PERIOD)
+
+    # Lấy MACD H4
+    macd_line, macd_signal, macd_hist = _macd_latest(symbol, interval)
+
+    # Quyết định hành động
+    decision = _eth_decide_action(price, rsi_h4, macd_hist)
+    action = decision["action"]
+    reason = decision["reason"]
+
+    # Thời gian hiện tại (UTC)
+    now_utc = datetime.utcnow().isoformat() + "Z"
+
+    payload = {
+        "symbol": symbol,
+        "timeframe": interval,
+        "now_utc": now_utc,
+        "price": price,
+        "rsi_h4": rsi_h4,
+        "macd": macd_line,
+        "macd_signal": macd_signal,
+        "macd_hist": macd_hist,
+        "action": action,
+        "reason": reason,
+    }
+
+    # Lưu vào Supabase (table: ethdata)
+    # Gợi ý schema ethdata:
+    # id (uuid) - default
+    # created_at (timestamptz) - default now()
+    # symbol (text)
+    # timeframe (text)
+    # price (numeric)
+    # rsi_h4 (numeric)
+    # macd (numeric)
+    # macd_signal (numeric)
+    # macd_hist (numeric)
+    # action (text)
+    # reason (text)
+    try:
+        supabase_admin.table("ethdata").insert(
+            {
+                "symbol": symbol,
+                "timeframe": interval,
+                "price": price,
+                "rsi_h4": rsi_h4,
+                "macd": macd_line,
+                "macd_signal": macd_signal,
+                "macd_hist": macd_hist,
+                "action": action,
+                "reason": reason,
+                "created_at": None,  # Để DB tự ghi thời gian
+            }
+        ).execute()
+    except Exception as e:
+        logging.error(f"[ETHTRACKER] Error inserting into Supabase: {e}")
+
+    return payload
+
 
 
 @_rsi_router.get("/rsi-status", response_class=JSONResponse)
