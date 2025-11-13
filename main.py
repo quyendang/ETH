@@ -363,12 +363,16 @@ def _eth_decide_action(price: float, rsi_h4: float, macd_hist: float) -> Dict[st
         "reason": " | ".join(reasons),
     }
     
-@_rsi_router.get("/ethtracker")
-def eth_tracker():
+# ===== ETH TRACKER CORE =====
+
+def run_eth_tracker_once(send_notify: bool = False):
     """
-    Lấy giá, RSI H4, MACD H4 cho ETHUSDT,
-    quyết định action, lưu vào Supabase (table 'ethdata'),
-    và trả về JSON.
+    Chạy 1 lần:
+    - Lấy giá, RSI H4, MACD H4 cho ETHUSDT
+    - Quyết định action
+    - Lưu vào Supabase (ethdata)
+    - (option) gửi Pushover nếu action != HOLD
+    - Trả về payload (dict)
     """
     symbol = ETH_TRACKER_SYMBOL
     interval = ETH_TRACKER_INTERVAL
@@ -384,7 +388,7 @@ def eth_tracker():
     action = decision["action"]
     reason = decision["reason"]
 
-    # Thời gian hiện tại (UTC)
+    # Thời gian hiện tại (UTC, chỉ dùng để trả về cho đẹp)
     now_utc = datetime.utcnow().isoformat() + "Z"
 
     payload = {
@@ -401,18 +405,6 @@ def eth_tracker():
     }
 
     # Lưu vào Supabase (table: ethdata)
-    # Gợi ý schema ethdata:
-    # id (uuid) - default
-    # created_at (timestamptz) - default now()
-    # symbol (text)
-    # timeframe (text)
-    # price (numeric)
-    # rsi_h4 (numeric)
-    # macd (numeric)
-    # macd_signal (numeric)
-    # macd_hist (numeric)
-    # action (text)
-    # reason (text)
     try:
         supabase_admin.table("ethdata").insert(
             {
@@ -425,13 +417,40 @@ def eth_tracker():
                 "macd_hist": macd_hist,
                 "action": action,
                 "reason": reason,
-                "created_at": None,  # Để DB tự ghi thời gian
+                # KHÔNG gửi created_at -> DB tự dùng default now()
             }
         ).execute()
     except Exception as e:
         logging.error(f"[ETHTRACKER] Error inserting into Supabase: {e}")
 
+    # Gửi Pushover nếu có action khác HOLD
+    if send_notify and action != "HOLD":
+        try:
+            title = f"ETH Tracker: {action}"
+            msg_lines = [
+                f"Action: {action}",
+                f"Reason: {reason}",
+                f"Price: {price}",
+                f"RSI H4: {rsi_h4}",
+                f"MACD: {macd_line:.4f} | Signal: {macd_signal:.4f} | Hist: {macd_hist:.4f}",
+                f"Time (UTC): {now_utc}",
+            ]
+            _pushover_notify(title, "\n".join(msg_lines))
+        except Exception as e:
+            logging.error(f"[ETHTRACKER] Error sending Pushover: {e}")
+
     return payload
+
+
+# ===== API ENDPOINT =====
+
+@_rsi_router.get("/ethtracker")
+def eth_tracker():
+    """
+    Endpoint HTTP để xem nhanh dữ liệu tracker hiện tại.
+    Không gửi Pushover, chỉ trả JSON.
+    """
+    return run_eth_tracker_once(send_notify=False)
 
 
 
@@ -450,7 +469,18 @@ def rsi_status():
     pretty = json.dumps(data, indent=4, ensure_ascii=False)
     return JSONResponse(content=json.loads(pretty))
 
-
+def eth_tracker_job():
+    """
+    Job chạy mỗi 30 phút:
+    - Gọi run_eth_tracker_once(send_notify=True)
+    - Lưu DB + gửi pushover nếu action != HOLD
+    """
+    try:
+        payload = run_eth_tracker_once(send_notify=True)
+        logging.info(f"[ETHTRACKER] Job run, action={payload['action']}, price={payload['price']}")
+    except Exception as e:
+        logging.error(f"[ETHTRACKER] Job error: {e}")
+        
 def init_inline_rsi_dual(app_: FastAPI, scheduler: Optional[BackgroundScheduler] = None):
     app_.include_router(_rsi_router, prefix="/bots", tags=["bots"])
     if scheduler is not None:
@@ -462,6 +492,13 @@ def init_inline_rsi_dual(app_: FastAPI, scheduler: Optional[BackgroundScheduler]
                 id="rsi_check_dual",
                 replace_existing=True,
                 next_run_time=datetime.utcnow(),
+            )
+            scheduler.add_job(
+                eth_tracker_job,
+                "interval",
+                minutes=30,
+                id="eth_tracker_job",
+                replace_existing=True,
             )
         except Exception:
             scheduler.add_job(
