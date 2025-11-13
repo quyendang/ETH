@@ -633,7 +633,7 @@ def init_inline_rsi_dual(app_: FastAPI, scheduler: Optional[BackgroundScheduler]
             scheduler.add_job(
                 eth_tracker_job,
                 "interval",
-                minutes=30,
+                minutes=10,
                 id="eth_tracker_job",
                 replace_existing=True,
             )
