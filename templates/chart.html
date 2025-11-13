@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ETH Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 16px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      margin-bottom: 8px;
+    }
+    .chart-wrapper {
+      margin-top: 24px;
+      background: #020617;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.8);
+    }
+    canvas {
+      max-width: 100%;
+    }
+    .subtitle {
+      font-size: 0.875rem;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>ETH Tracker – Price / RSI / Signals</h1>
+  <div class="subtitle">
+    Dữ liệu từ bảng <code>ethdata</code> – mỗi điểm là một lần bot chạy.
+  </div>
+
+  <!-- Chart 1: Giá + BUY/SELL -->
+  <div class="chart-wrapper">
+    <h2>Giá ETH + điểm BUY/SELL</h2>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <!-- Chart 2: RSI H4 + MACD Histogram -->
+  <div class="chart-wrapper">
+    <h2>RSI H4 &amp; MACD Histogram</h2>
+    <canvas id="indicatorChart"></canvas>
+  </div>
+</div>
+
+<script>
+  // Dữ liệu truyền từ FastAPI (Jinja2)
+  const labels = {{ labels | tojson }};
+  const prices = {{ prices | tojson }};
+  const rsiValues = {{ rsi_values | tojson }};
+  const macdHistValues = {{ macd_hist_values | tojson }};
+  const buyPoints = {{ buy_points | tojson }};
+  const sellPoints = {{ sell_points | tojson }};
+
+  // Chart 1: Giá + BUY/SELL
+  const ctxPrice = document.getElementById('priceChart').getContext('2d');
+
+  const priceChart = new Chart(ctxPrice, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'ETH Price',
+          data: prices,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.25,
+        },
+        {
+          label: 'BUY',
+          data: buyPoints,
+          type: 'scatter',
+          pointRadius: 5,
+          pointStyle: 'triangle',
+        },
+        {
+          label: 'SELL',
+          data: sellPoints,
+          type: 'scatter',
+          pointRadius: 5,
+          pointStyle: 'rectRot',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#e5e7eb',
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const dsLabel = context.dataset.label || '';
+              if (dsLabel === 'BUY' || dsLabel === 'SELL') {
+                return `${dsLabel} @ ${context.parsed.y}`;
+              }
+              return `Price: ${context.parsed.y}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#9ca3af',
+            maxRotation: 45,
+            minRotation: 45,
+          }
+        },
+        y: {
+          ticks: {
+            color: '#9ca3af',
+          }
+        }
+      }
+    }
+  });
+
+  // Chart 2: RSI + MACD Hist
+  const ctxIndicator = document.getElementById('indicatorChart').getContext('2d');
+
+  const indicatorChart = new Chart(ctxIndicator, {
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          type: 'line',
+          label: 'RSI H4',
+          data: rsiValues,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.25,
+          yAxisID: 'y-rsi',
+        },
+        {
+          type: 'bar',
+          label: 'MACD Hist',
+          data: macdHistValues,
+          borderWidth: 0,
+          yAxisID: 'y-macd',
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#e5e7eb',
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#9ca3af',
+            maxRotation: 45,
+            minRotation: 45,
+          }
+        },
+        'y-rsi': {
+          position: 'left',
+          ticks: {
+            color: '#9ca3af',
+          },
+          min: 0,
+          max: 100,
+          grid: {
+            drawOnChartArea: false,
+          }
+        },
+        'y-macd': {
+          position: 'right',
+          ticks: {
+            color: '#9ca3af',
+          },
+          grid: {
+            drawOnChartArea: true,
+          }
+        }
+      }
+    }
+  });
+</script>
+
+</body>
+</html>
