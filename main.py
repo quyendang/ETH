@@ -529,6 +529,66 @@ def eth_tracker():
     """
     return run_eth_tracker_once(send_notify=False)
 
+@_rsi_router.get("/ethdata", response_class=HTMLResponse)
+async def bots_ethdata(request: Request):
+    """
+    Render chart ETH tracker từ dữ liệu bảng ethdata.
+    """
+    try:
+        # Lấy tối đa 500 record gần nhất, sắp xếp theo created_at tăng dần
+        resp = supabase_admin.table("ethdata") \
+            .select("*") \
+            .order("created_at", desc=False) \
+            .limit(500) \
+            .execute()
+        rows = resp.data or []
+    except Exception as e:
+        logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
+        rows = []
+
+    # Chuẩn hoá dữ liệu cho chart
+    labels = []
+    prices = []
+    rsi_values = []
+    macd_hist_values = []
+    buy_points = []
+    sell_points = []
+
+    for r in rows:
+        ts = r.get("created_at")
+        # Supabase trả timestamptz -> string ISO, dùng luôn làm label
+        labels.append(ts)
+
+        price = float(r.get("price", 0))
+        rsi = float(r.get("rsi_h4", 0))
+        macd_hist = float(r.get("macd_hist", 0))
+        action = r.get("action", "HOLD")
+
+        prices.append(price)
+        rsi_values.append(rsi)
+        macd_hist_values.append(macd_hist)
+
+        # BUY/SELL point: chỉ set giá tại điểm đó, còn lại null -> Chart.js sẽ vẽ marker
+        if action == "BUY":
+            buy_points.append(price)
+            sell_points.append(None)
+        elif action == "SELL":
+            buy_points.append(None)
+            sell_points.append(price)
+        else:
+            buy_points.append(None)
+            sell_points.append(None)
+
+    context = {
+        "request": request,
+        "labels": labels,
+        "prices": prices,
+        "rsi_values": rsi_values,
+        "macd_hist_values": macd_hist_values,
+        "buy_points": buy_points,
+        "sell_points": sell_points,
+    }
+    return templates.TemplateResponse("chart.html", context)
 
 
 @_rsi_router.get("/rsi-status", response_class=JSONResponse)
