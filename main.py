@@ -512,7 +512,7 @@ def run_eth_tracker_once(send_notify: bool = False):
                 f"Range: {recent_low:.1f} - {recent_high:.1f}",
                 f"Time (UTC): {now_utc}",
             ]
-            send_pushover(title, "\n".join(msg_lines))
+            _pushover_notify(title, "\n".join(msg_lines))
         except Exception as e:
             logging.error(f"[ETHTRACKER] Error sending Pushover: {e}")
 
