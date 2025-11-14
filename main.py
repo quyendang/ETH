@@ -532,7 +532,7 @@ def eth_tracker():
 @_rsi_router.get("/ethdata", response_class=HTMLResponse)
 async def bots_ethdata(request: Request):
     """
-    Render chart ETH tracker từ dữ liệu bảng ethdata.
+    Render chart ETH tracker từ dữ liệu bảng ethdata + vùng BUY/SELL dynamic.
     """
     try:
         # Lấy tối đa 500 record gần nhất, sắp xếp theo created_at tăng dần
@@ -546,7 +546,6 @@ async def bots_ethdata(request: Request):
         logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
         rows = []
 
-    # Chuẩn hoá dữ liệu cho chart
     labels = []
     prices = []
     rsi_values = []
@@ -556,7 +555,6 @@ async def bots_ethdata(request: Request):
 
     for r in rows:
         ts = r.get("created_at")
-        # Supabase trả timestamptz -> string ISO, dùng luôn làm label
         labels.append(ts)
 
         price = float(r.get("price", 0))
@@ -568,7 +566,6 @@ async def bots_ethdata(request: Request):
         rsi_values.append(rsi)
         macd_hist_values.append(macd_hist)
 
-        # BUY/SELL point: chỉ set giá tại điểm đó, còn lại null -> Chart.js sẽ vẽ marker
         if action == "BUY":
             buy_points.append(price)
             sell_points.append(None)
@@ -579,6 +576,18 @@ async def bots_ethdata(request: Request):
             buy_points.append(None)
             sell_points.append(None)
 
+    # 🔥 TÍNH VÙNG GIÁ ĐỘNG ĐỂ VẼ ZONE
+    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
+    try:
+        zones = _compute_eth_zones_from_range(
+            ETH_TRACKER_SYMBOL,
+            ETH_TRACKER_INTERVAL,
+            lookback=60,  # 60 nến H4 ~ 10 ngày
+        )
+        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
+    except Exception as e:
+        logging.error(f"[ETHDATA] Error computing zones: {e}")
+
     context = {
         "request": request,
         "labels": labels,
@@ -587,6 +596,13 @@ async def bots_ethdata(request: Request):
         "macd_hist_values": macd_hist_values,
         "buy_points": buy_points,
         "sell_points": sell_points,
+        # Zones để vẽ nền:
+        "buy_low": buy_low,
+        "buy_high": buy_high,
+        "sell_low": sell_low,
+        "sell_high": sell_high,
+        "recent_low": recent_low,
+        "recent_high": recent_high,
     }
     return templates.TemplateResponse("chart.html", context)
 
