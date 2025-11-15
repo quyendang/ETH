@@ -555,7 +555,7 @@ def run_eth_tracker_once(send_notify: bool = False):
         logging.error(f"[ETHTRACKER] Error inserting into Supabase: {e}")
 
     # 8) Gửi Pushover nếu cần
-    if send_notify && action != "HOLD":
+    if send_notify and action != "HOLD":
         try:
             title = f"ETH Tracker: {action}"
             msg_lines = [
@@ -566,7 +566,7 @@ def run_eth_tracker_once(send_notify: bool = False):
                 f"MACD: {macd_line:.4f} | Signal: {macc_signal:.4f} | Hist: {macd_hist:.4f}",
                 f"Time (UTC): {now_utc}",
             ]
-            send_pushover(title, "\n".join(msg_lines))
+            _pushover_notify(title, "\n".join(msg_lines))
         except Exception as e:
             logging.error(f"[ETHTRACKER] Error sending Pushover: {e}")
 
