@@ -141,6 +141,9 @@ RSI_TIMEFRAMES = {"1h": "1h", "4h": "4h", "1d": "1d"}
 # ------------------------------------------------------------------
 ETH_TRACKER_SYMBOL = os.getenv("ETH_TRACKER_SYMBOL", "ETHUSDT")
 ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "4h")
+ETH_CYCLE_SIZE = float(os.getenv("ETH_CYCLE_SIZE", "40"))   # số ETH bán/mua mỗi vòng
+ETH_BASE_BALANCE = float(os.getenv("ETH_BASE_BALANCE", "138"))  # tổng ETH ban đầu
+
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
 ETH_SELL_ZONE_LOW = float(os.getenv("ETH_SELL_ZONE_LOW", "3650"))
@@ -298,9 +301,9 @@ def _macd_latest_with_prev(
 ):
     """
     Tính MACD cho symbol/interval.
-    Trả về (macd_line, signal_line, hist, prev_hist) với:
+    Trả về (macd_line, signal_line, hist, prev_hist):
     - hist: histogram cây hiện tại
-    - prev_hist: histogram của cây liền trước (dùng để check 'yếu đi')
+    - prev_hist: histogram cây liền trước
     """
     limit = max(200, slow * 5)
     kl = _rsi_fetch_klines(symbol, interval, limit=limit)
@@ -332,6 +335,7 @@ def _macd_latest_with_prev(
     prev_hist = macd_series[-2] - prev_signal_line
 
     return macd_line, signal_line, hist, prev_hist
+
 
 
 
@@ -416,11 +420,14 @@ def _eth_decide_action(
     macd_hist: float,
     prev_macd_hist: float,
     zones: tuple,
+    btc_rsi_h4: float,
+    btc_macd_hist: float,
+    btc_prev_macd_hist: float,
 ) -> Dict[str, str]:
     """
-    Trả về action + reason, dùng vùng BUY/SELL động + điều kiện MACD hist yếu dần cho SELL.
-
-    zones = (sell_low, sell_high, buy_low, buy_high, recent_low, recent_high)
+    Quyết định BUY/SELL/HOLD cho ETH với:
+    - zones: (sell_low, sell_high, buy_low, buy_high, recent_low, recent_high)
+    - BTC filter để tránh bán ngược trend.
     """
     sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
 
@@ -433,10 +440,14 @@ def _eth_decide_action(
 
     action = "HOLD"
 
-    # Điều kiện MACD hist yếu đi: dương nhưng giảm so với cây trước
-    macd_weakening = macd_hist > 0 and prev_macd_hist is not None and macd_hist < prev_macd_hist
+    # ETH: MACD hist đang yếu đi? (đỉnh tròn)
+    macd_weakening = (
+        macd_hist > 0
+        and prev_macd_hist is not None
+        and macd_hist < prev_macd_hist
+    )
 
-    # SELL: vùng trên của range + RSI cao + MACD hist yếu đi
+    # Điều kiện SELL cơ bản
     if (
         sell_low <= price <= sell_high
         and rsi_h4 >= ETH_RSI_SELL
@@ -450,7 +461,7 @@ def _eth_decide_action(
             f"MACD hist weakening: current {macd_hist:.4f} < prev {prev_macd_hist:.4f}"
         )
 
-    # BUY: vùng dưới của range + RSI thấp (MACD tạm thời chưa ép buộc thêm)
+    # Điều kiện BUY
     elif buy_low <= price <= buy_high and rsi_h4 <= ETH_RSI_BUY:
         action = "BUY"
         reasons.append(
@@ -460,45 +471,83 @@ def _eth_decide_action(
     else:
         reasons.append("No buy/sell condition matched (HOLD).")
 
-    # Info thêm về MACD hist (cho dễ đọc reason)
+    # ===== BTC FILTER: tránh bán ngược trend BTC =====
+    btc_bull_rsi = btc_rsi_h4 >= 65
+    btc_macd_stronger = (
+        btc_macd_hist > 0
+        and btc_prev_macd_hist is not None
+        and btc_macd_hist >= btc_prev_macd_hist
+    )
+
+    if action == "SELL" and (btc_bull_rsi or btc_macd_stronger):
+        reasons.append(
+            f"Cancel SELL: BTC still bullish (RSI_H4={btc_rsi_h4:.1f}, "
+            f"MACD hist {btc_macd_hist:.4f} >= prev {btc_prev_macd_hist:.4f})"
+        )
+        action = "HOLD"
+
+    # Info thêm về MACD ETH
     if abs(macd_hist) < 0.5:
-        reasons.append("MACD hist ~0 → momentum weak / sideway.")
+        reasons.append("MACD hist ~0 → ETH momentum weak / sideway.")
     elif macd_hist > 0:
-        reasons.append("MACD hist > 0 → bullish momentum.")
+        reasons.append("MACD hist > 0 → ETH bullish momentum.")
     else:
-        reasons.append("MACD hist < 0 → bearish momentum.")
+        reasons.append("MACD hist < 0 → ETH bearish momentum.")
 
     return {
         "action": action,
         "reason": " | ".join(reasons),
     }
 
+
+def _get_next_cycle_index() -> int:
+    resp = supabase_admin.table("eth_cycles") \
+        .select("cycle_index") \
+        .order("cycle_index", desc=True) \
+        .limit(1) \
+        .execute()
+    data = resp.data or []
+    if not data:
+        return 1
+    return int(data[0]["cycle_index"]) + 1
+
+
+def _get_open_cycle():
+    resp = supabase_admin.table("eth_cycles") \
+        .select("*") \
+        .is_("buy_price", None) \
+        .order("cycle_index", desc=True) \
+        .limit(1) \
+        .execute()
+    data = resp.data or []
+    return data[0] if data else None
+
     
 # ===== ETH TRACKER CORE =====
 
 def run_eth_tracker_once(send_notify: bool = False):
-    """
-    Chạy 1 lần:
-    - Lấy giá, RSI H4, MACD H4 (kèm prev hist) cho ETHUSDT
-    - Tính dynamic zones
-    - Quyết định action
-    - Lưu vào Supabase (ethdata)
-    - (option) gửi Pushover nếu action != HOLD
-    - Trả về payload (dict) bao gồm cả zones
-    """
     symbol = ETH_TRACKER_SYMBOL
     interval = ETH_TRACKER_INTERVAL
 
-    # 1) Lấy price + RSI H4
+    # 1) ETH Price + RSI H4
     price, rsi_h4 = _rsi_latest(symbol, interval, RSI_PERIOD)
 
-    # 2) Lấy MACD H4 (kèm prev hist)
+    # 2) ETH MACD + prev hist
     macd_line, macd_signal, macd_hist, prev_macd_hist = _macd_latest_with_prev(
         symbol,
         interval,
     )
 
-    # 3) Tính dynamic zones từ range gần đây
+    # 3) BTC Price + RSI H4
+    btc_price, btc_rsi_h4 = _rsi_latest("BTCUSDT", interval, RSI_PERIOD)
+
+    # 4) BTC MACD + prev hist
+    btc_macd_line, btc_macd_signal, btc_macd_hist, btc_prev_macd_hist = _macd_latest_with_prev(
+        "BTCUSDT",
+        interval,
+    )
+
+    # 5) Dynamic zones ETH
     zones = _compute_eth_zones_from_range(
         symbol,
         interval,
@@ -506,15 +555,59 @@ def run_eth_tracker_once(send_notify: bool = False):
     )
     sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
 
-    # 4) Quyết định hành động
-    decision = _eth_decide_action(price, rsi_h4, macd_hist, prev_macd_hist, zones)
+    # 6) Quyết định action có filter BTC
+    decision = _eth_decide_action(
+        price=price,
+        rsi_h4=rsi_h4,
+        macd_hist=macd_hist,
+        prev_macd_hist=prev_macd_hist,
+        zones=zones,
+        btc_rsi_h4=btc_rsi_h4,
+        btc_macd_hist=btc_macd_hist,
+        btc_prev_macd_hist=btc_prev_macd_hist,
+    )
     action = decision["action"]
     reason = decision["reason"]
 
-    # 5) Thời gian hiện tại (UTC)
+
+    # ==== ETH CYCLE TRACKING ====
+    try:
+        if action == "SELL":
+            # Mở 1 cycle mới
+            cycle_index = _get_next_cycle_index()
+            supabase_admin.table("eth_cycles").insert(
+                {
+                    "cycle_index": cycle_index,
+                    "sell_price": price,
+                    "amount_eth": ETH_CYCLE_SIZE,
+                }
+            ).execute()
+
+        elif action == "BUY":
+            # Đóng cycle gần nhất (nếu có)
+            open_cycle = _get_open_cycle()
+            if open_cycle:
+                sell_price = float(open_cycle["sell_price"])
+                buy_price = price
+                amount = float(open_cycle["amount_eth"])
+
+                delta_usdt = (sell_price - buy_price) * amount
+                # Nếu sell cao hơn buy → delta_usdt > 0 → có lợi nhuận
+                delta_eth = delta_usdt / buy_price if buy_price != 0 else 0.0
+
+                supabase_admin.table("eth_cycles").update(
+                    {
+                        "buy_price": buy_price,
+                        "delta_usdt": delta_usdt,
+                        "delta_eth": delta_eth,
+                    }
+                ).eq("id", open_cycle["id"]).execute()
+    except Exception as e:
+        logging.error(f"[ETHCYCLES] Error updating cycles: {e}")
+
+
     now_utc = datetime.utcnow().isoformat() + "Z"
 
-    # 6) Payload trả về (bao gồm cả dynamic zones)
     payload = {
         "symbol": symbol,
         "timeframe": interval,
@@ -534,9 +627,14 @@ def run_eth_tracker_once(send_notify: bool = False):
             "recent_low": recent_low,
             "recent_high": recent_high,
         },
+        "btc": {
+            "price": btc_price,
+            "rsi_h4": btc_rsi_h4,
+            "macd_hist": btc_macd_hist,
+        },
     }
 
-    # 7) Lưu vào Supabase (ethdata) – schema cũ vẫn OK, chỉ log hist hiện tại
+    # 7) Lưu ethdata như cũ
     try:
         supabase_admin.table("ethdata").insert(
             {
@@ -563,7 +661,8 @@ def run_eth_tracker_once(send_notify: bool = False):
                 f"Reason: {reason}",
                 f"Price: {price}",
                 f"RSI H4: {rsi_h4}",
-                f"MACD: {macd_line:.4f} | Signal: {macc_signal:.4f} | Hist: {macd_hist:.4f}",
+                f"MACD: {macd_line:.4f} | Signal: {macd_signal:.4f} | Hist: {macd_hist:.4f}",
+                f"BTC RSI H4: {btc_rsi_h4:.1f}, BTC hist: {btc_macd_hist:.4f}",
                 f"Time (UTC): {now_utc}",
             ]
             _pushover_notify(title, "\n".join(msg_lines))
@@ -573,7 +672,33 @@ def run_eth_tracker_once(send_notify: bool = False):
     return payload
 
 
+
 # ===== API ENDPOINT =====
+
+@_rsi_router.get("/eth-cycles", response_class=HTMLResponse)
+async def eth_cycles_view(request: Request):
+    resp = supabase_admin.table("eth_cycles") \
+        .select("*") \
+        .order("cycle_index", desc=False) \
+        .execute()
+    cycles = resp.data or []
+
+    # Tính tổng ETH free tích luỹ
+    total_delta_eth = sum(float(c["delta_eth"]) for c in cycles if c.get("delta_eth") is not None)
+    final_eth = ETH_BASE_BALANCE + total_delta_eth
+
+    return templates.TemplateResponse(
+        "cycles.html",
+        {
+            "request": request,
+            "cycles": cycles,
+            "base_eth": ETH_BASE_BALANCE,
+            "delta_eth_total": total_delta_eth,
+            "final_eth": final_eth,
+        },
+    )
+
+
 
 @_rsi_router.get("/ethtracker")
 def eth_tracker():
