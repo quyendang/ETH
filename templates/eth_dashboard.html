@@ -4,110 +4,155 @@
   <meta charset="UTF-8" />
   <title>ETH Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
+    /* ===== Global ===== */
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #020617;
-      color: #e5e7eb;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f5f7;
+      color: #222;
       margin: 0;
-      padding: 16px;
+      padding: 24px 0;
     }
+
     .container {
-      max-width: 1200px;
+      max-width: 1280px;
       margin: 0 auto;
+      padding: 0 20px;
     }
-    h1, h2 {
-      margin-bottom: 8px;
+
+    h1 {
+      font-size: 30px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #1a1a1a;
     }
+
+    h2 {
+      font-size: 20px;
+      color: #202020;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+
     .subtitle {
-      font-size: 0.875rem;
-      color: #9ca3af;
+      color: #666;
+      margin-bottom: 24px;
     }
-    .chart-wrapper {
-      margin-top: 24px;
-      background: #020617;
-      padding: 16px;
-      border-radius: 12px;
-      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.8);
+
+    /* ===== Card ===== */
+    .card {
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 24px;
+      border: 1px solid #e4e6eb;
+      margin-bottom: 28px;
     }
+
     canvas {
       max-width: 100%;
     }
-    code {
-      background: #0b1220;
-      padding: 2px 4px;
-      border-radius: 4px;
-      font-size: 0.85em;
+
+    /* ===== Summary ===== */
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
     }
-    .section {
-      margin-top: 32px;
+
+    .summary-item {
+      flex: 1;
+      min-width: 160px;
+      padding: 12px 16px;
+      background: #fafafa;
+      border: 1px solid #e6e6e6;
+      border-radius: 10px;
     }
+
+    .summary-title {
+      color: #777;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .summary-value {
+      color: #111;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    /* ===== Table ===== */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 16px;
-      font-size: 0.9rem;
+      margin-top: 12px;
+      font-size: 14px;
     }
-    th, td {
-      border-bottom: 1px solid #1f2937;
-      padding: 8px;
-      text-align: right;
-    }
+
     th {
+      background: #f1f1f1;
+      color: #333;
+      font-weight: 600;
+      padding: 10px 6px;
+      border-bottom: 1px solid #dcdcdc;
+    }
+
+    td {
+      padding: 10px 6px;
+      border-bottom: 1px solid #e5e5e5;
       text-align: center;
-      background: #0f172a;
+      color: #444;
     }
-    tr:nth-child(even) {
-      background: #020617;
-    }
-    tr:nth-child(odd) {
-      background: #020617;
-    }
-    .summary {
-      margin-bottom: 8px;
-      font-size: 0.95rem;
-    }
-    .pill {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      background: #0f172a;
-      color: #e5e7eb;
+
+    tr:hover td {
+      background: #f9f9f9;
     }
   </style>
 </head>
+
 <body>
 <div class="container">
+
   <h1>ETH Dashboard</h1>
-  <div class="subtitle">
-    Tracker giá, tín hiệu BUY/SELL & các vòng xoay ETH để tăng lượng ETH nắm giữ.
+  <div class="subtitle">Tracker BUY/SELL – Dynamic Zones – RSI/MACD – ETH Accumulation</div>
+
+  <!-- PRICE CHART -->
+  <div class="card">
+    <h2>ETH Price History</h2>
+    <canvas id="priceChart"></canvas>
   </div>
 
-  <!-- ================== PHẦN 1: CHART ETH ================== -->
-  <div class="section">
-    <div class="chart-wrapper">
-      <h2>Giá ETH + vùng BUY/SELL + điểm BUY/SELL</h2>
-      <p class="subtitle">
-        Dữ liệu từ bảng <code>ethdata</code> – mỗi điểm là một lần bot chạy.
-      </p>
-      <canvas id="priceChart"></canvas>
-    </div>
-
-    <div class="chart-wrapper">
-      <h2>RSI H4 &amp; MACD Histogram</h2>
-      <canvas id="indicatorChart"></canvas>
-    </div>
+  <!-- RSI + MACD -->
+  <div class="card">
+    <h2>RSI H4 & MACD Histogram</h2>
+    <canvas id="indicatorChart"></canvas>
   </div>
 
-  <!-- ================== PHẦN 2: ETH CYCLES ================== -->
-  <div class="section">
-    <h2>ETH Growth – Cycles</h2>
+  <!-- SUMMARY -->
+  <div class="card">
+    <h2>ETH Accumulation Summary</h2>
+
     <div class="summary">
-      <div>ETH ban đầu: <span class="pill">{{ base_eth }}</span></div>
-      <div>ETH free tích luỹ: <span class="pill">{{ "%.4f"|format(delta_eth_total or 0) }}</span></div>
-      <div>Tổng ETH ước tính: <span class="pill">{{ "%.4f"|format(final_eth) }}</span></div>
+      <div class="summary-item">
+        <div class="summary-title">ETH Ban Đầu</div>
+        <div class="summary-value">{{ base_eth }}</div>
+      </div>
+
+      <div class="summary-item">
+        <div class="summary-title">ETH Free Đã Tích Lũy</div>
+        <div class="summary-value">{{ "%.4f"|format(delta_eth_total or 0) }}</div>
+      </div>
+
+      <div class="summary-item">
+        <div class="summary-title">Tổng ETH ước tính</div>
+        <div class="summary-value">{{ "%.4f"|format(final_eth) }}</div>
+      </div>
     </div>
+  </div>
+
+  <!-- CYCLES TABLE -->
+  <div class="card">
+    <h2>ETH Cycles (Vòng xoay tăng ETH)</h2>
 
     <table>
       <thead>
@@ -115,50 +160,21 @@
         <th>Cycle</th>
         <th>Sell Price</th>
         <th>Buy Price</th>
-        <th>Amount ETH</th>
-        <th>ΔUSDT</th>
-        <th>ΔETH</th>
+        <th>ETH Amount</th>
+        <th>Δ USDT</th>
+        <th>Δ ETH</th>
       </tr>
       </thead>
+
       <tbody>
       {% for c in cycles %}
         <tr>
-          <td style="text-align: center;">{{ c.cycle_index }}</td>
-          <td>
-            {% if c.sell_price is not none %}
-              {{ "%.2f"|format(c.sell_price) }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
-          <td>
-            {% if c.buy_price is not none %}
-              {{ "%.2f"|format(c.buy_price) }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
-          <td>
-            {% if c.amount_eth is not none %}
-              {{ "%.4f"|format(c.amount_eth) }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
-          <td>
-            {% if c.delta_usdt is not none %}
-              {{ "%.2f"|format(c.delta_usdt) }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
-          <td>
-            {% if c.delta_eth is not none %}
-              {{ "%.4f"|format(c.delta_eth) }}
-            {% else %}
-              -
-            {% endif %}
-          </td>
+          <td>{{ c.cycle_index }}</td>
+          <td>{{ "%.2f"|format(c.sell_price) }}</td>
+          <td>{% if c.buy_price %}{{ "%.2f"|format(c.buy_price) }}{% else %}-{% endif %}</td>
+          <td>{{ "%.4f"|format(c.amount_eth) }}</td>
+          <td>{% if c.delta_usdt %}{{ "%.2f"|format(c.delta_usdt) }}{% else %}-{% endif %}</td>
+          <td>{% if c.delta_eth %}{{ "%.4f"|format(c.delta_eth) }}{% else %}-{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -166,8 +182,9 @@
   </div>
 </div>
 
+<!-- JS + Chart -->
 <script>
-  // ===== DỮ LIỆU TỪ BACKEND =====
+  /* === DATA === */
   const labels = {{ labels | tojson }};
   const prices = {{ prices | tojson }};
   const rsiValues = {{ rsi_values | tojson }};
@@ -180,214 +197,117 @@
   const sellLow = {{ sell_low if sell_low is not none else 'null' }};
   const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-  // ===== PLUGIN VẼ VÙNG GIÁ BUY / SELL =====
+  /* === ZONE PLUGIN === */
   const priceZonesPlugin = {
     id: 'priceZones',
-    beforeDraw(chart, args, pluginOptions) {
-      if (buyLow === null || buyHigh === null || sellLow === null || sellHigh === null) {
-        return;
-      }
+    beforeDraw(chart) {
+      if (!buyLow || !buyHigh || !sellLow || !sellHigh) return;
+
       const {ctx, chartArea, scales} = chart;
       const {left, right} = chartArea;
-      const yScale = scales.y;
-      if (!yScale) return;
+      const y = scales.y;
+      if (!y) return;
 
-      const yBuyLow = yScale.getPixelForValue(buyLow);
-      const yBuyHigh = yScale.getPixelForValue(buyHigh);
-      const ySellLow = yScale.getPixelForValue(sellLow);
-      const ySellHigh = yScale.getPixelForValue(sellHigh);
+      const yBuyLow  = y.getPixelForValue(buyLow);
+      const yBuyHigh = y.getPixelForValue(buyHigh);
+      const ySellLow = y.getPixelForValue(sellLow);
+      const ySellHigh= y.getPixelForValue(sellHigh);
 
       ctx.save();
 
-      // Vùng BUY (xanh nhạt)
-      ctx.fillStyle = 'rgba(34,197,94,0.12)';
-      ctx.fillRect(
-        left,
-        Math.min(yBuyHigh, yBuyLow),
-        right - left,
-        Math.abs(yBuyLow - yBuyHigh)
-      );
+      ctx.fillStyle = "rgba(0, 200, 120, 0.12)";
+      ctx.fillRect(left, yBuyHigh, right-left, yBuyLow-yBuyHigh);
 
-      // Vùng SELL (đỏ nhạt)
-      ctx.fillStyle = 'rgba(239,68,68,0.12)';
-      ctx.fillRect(
-        left,
-        Math.min(ySellHigh, ySellLow),
-        right - left,
-        Math.abs(ySellLow - ySellHigh)
-      );
-
-      // Đường biên dashed
-      ctx.strokeStyle = 'rgba(148,163,184,0.6)';
-      ctx.setLineDash([4, 4]);
-
-      // Biên BUY
-      ctx.beginPath();
-      ctx.moveTo(left, yBuyLow);
-      ctx.lineTo(right, yBuyLow);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(left, yBuyHigh);
-      ctx.lineTo(right, yBuyHigh);
-      ctx.stroke();
-
-      // Biên SELL
-      ctx.beginPath();
-      ctx.moveTo(left, ySellLow);
-      ctx.lineTo(right, ySellLow);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(left, ySellHigh);
-      ctx.lineTo(right, ySellHigh);
-      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 80, 80, 0.12)";
+      ctx.fillRect(left, ySellHigh, right-left, ySellLow-ySellHigh);
 
       ctx.restore();
     }
   };
-
   Chart.register(priceZonesPlugin);
 
-  // ===== CHART 1: GIÁ ETH + BUY/SELL + ZONES =====
-  const ctxPrice = document.getElementById('priceChart').getContext('2d');
-
-  const priceChart = new Chart(ctxPrice, {
-    type: 'line',
+  /* === CHART PRICE === */
+  new Chart(document.getElementById("priceChart"), {
+    type: "line",
     data: {
-      labels: labels,
+      labels,
       datasets: [
         {
-          label: 'ETH Price',
+          label: "ETH Price",
           data: prices,
-          borderWidth: 1.5,
+          borderWidth: 1.8,
+          borderColor: "#3270ff",
           pointRadius: 0,
-          tension: 0.25,
+          tension: 0.25
         },
         {
-          label: 'BUY',
+          label: "BUY",
           data: buyPoints,
-          type: 'scatter',
+          type: "scatter",
           pointRadius: 5,
-          pointStyle: 'triangle',
+          pointStyle: "triangle",
+          backgroundColor: "#0ca678"
         },
         {
-          label: 'SELL',
+          label: "SELL",
           data: sellPoints,
-          type: 'scatter',
+          type: "scatter",
           pointRadius: 5,
-          pointStyle: 'rectRot',
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      interaction: {
-        mode: 'index',
-        intersect: false,
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: '#e5e7eb',
-          },
-        },
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              const dsLabel = context.dataset.label || '';
-              if (dsLabel === 'BUY' || dsLabel === 'SELL') {
-                return `${dsLabel} @ ${context.parsed.y}`;
-              }
-              return `Price: ${context.parsed.y}`;
-            }
-          }
+          pointStyle: "rectRot",
+          backgroundColor: "#e03131"
         }
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: '#9ca3af',
-            maxRotation: 45,
-            minRotation: 45,
-          }
-        },
-        y: {
-          ticks: {
-            color: '#9ca3af',
-          }
-        }
-      }
-    },
-    plugins: [priceZonesPlugin]
-  });
-
-  // ===== CHART 2: RSI + MACD HIST =====
-  const ctxIndicator = document.getElementById('indicatorChart').getContext('2d');
-
-  const indicatorChart = new Chart(ctxIndicator, {
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          type: 'line',
-          label: 'RSI H4',
-          data: rsiValues,
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.25,
-          yAxisID: 'y-rsi',
-        },
-        {
-          type: 'bar',
-          label: 'MACD Hist',
-          data: macdHistValues,
-          borderWidth: 0,
-          yAxisID: 'y-macd',
-        },
       ]
     },
     options: {
-      responsive: true,
-      interaction: {
-        mode: 'index',
-        intersect: false,
+      scales: {
+        x: { ticks: { color: "#555" } },
+        y: { ticks: { color: "#555" } }
       },
       plugins: {
-        legend: {
-          labels: {
-            color: '#e5e7eb',
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: '#9ca3af',
-            maxRotation: 45,
-            minRotation: 45,
-          }
+        legend: { labels: { color: "#222" } }
+      }
+    }
+  });
+
+  /* === CHART RSI + MACD === */
+  new Chart(document.getElementById("indicatorChart"), {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: "line",
+          label: "RSI H4",
+          data: rsiValues,
+          borderColor: "#3270ff",
+          borderWidth: 1.5,
+          pointRadius: 0,
+          yAxisID: "y1"
         },
-        'y-rsi': {
-          position: 'left',
-          ticks: {
-            color: '#9ca3af',
-          },
+        {
+          type: "bar",
+          label: "MACD Hist",
+          data: macdHistValues,
+          backgroundColor: "#b4b4b4",
+          yAxisID: "y2"
+        }
+      ]
+    },
+    options: {
+      scales: {
+        x: { ticks: { color: "#555" } },
+        y1: {
+          position: "left",
           min: 0,
           max: 100,
-          grid: {
-            drawOnChartArea: false,
-          }
+          ticks: { color: "#444" }
         },
-        'y-macd': {
-          position: 'right',
-          ticks: {
-            color: '#9ca3af',
-          },
-          grid: {
-            drawOnChartArea: true,
-          }
+        y2: {
+          position: "right",
+          ticks: { color: "#444" }
         }
+      },
+      plugins: {
+        legend: { labels: { color: "#222" } }
       }
     }
   });
