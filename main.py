@@ -289,6 +289,51 @@ def _macd_latest(symbol: str, interval: str, fast: int = MACD_FAST, slow: int = 
     hist = macd_line - signal_line
     return macd_line, signal_line, hist
 
+def _macd_latest_with_prev(
+    symbol: str,
+    interval: str,
+    fast: int = MACD_FAST,
+    slow: int = MACD_SLOW,
+    signal: int = MACD_SIGNAL,
+):
+    """
+    Tính MACD cho symbol/interval.
+    Trả về (macd_line, signal_line, hist, prev_hist) với:
+    - hist: histogram cây hiện tại
+    - prev_hist: histogram của cây liền trước (dùng để check 'yếu đi')
+    """
+    limit = max(200, slow * 5)
+    kl = _rsi_fetch_klines(symbol, interval, limit=limit)
+    closes = [float(k[4]) for k in kl]
+
+    if len(closes) < slow + signal + 5:
+        raise ValueError("Not enough data to compute MACD")
+
+    ema_fast = _compute_ema_series(closes, fast)
+    ema_slow = _compute_ema_series(closes, slow)
+
+    macd_series: List[float] = []
+    for ef, es in zip(ema_fast, ema_slow):
+        if ef is None or es is None:
+            macd_series.append(0.0)
+        else:
+            macd_series.append(ef - es)
+
+    signal_series = _compute_ema_series(macd_series, signal)
+
+    macd_line = macd_series[-1]
+    signal_line = signal_series[-1]
+    prev_signal_line = signal_series[-2]
+
+    if signal_line is None or prev_signal_line is None:
+        raise ValueError("Signal line not ready")
+
+    hist = macd_line - signal_line
+    prev_hist = macd_series[-2] - prev_signal_line
+
+    return macd_line, signal_line, hist, prev_hist
+
+
 
 def _rsi_latest(symbol: str, interval: str, period: int):
     kl = _rsi_fetch_klines(symbol, interval, limit=max(200, period * 5))
@@ -369,10 +414,11 @@ def _eth_decide_action(
     price: float,
     rsi_h4: float,
     macd_hist: float,
+    prev_macd_hist: float,
     zones: tuple,
 ) -> Dict[str, str]:
     """
-    Trả về action + reason, dùng vùng BUY/SELL động từ zones.
+    Trả về action + reason, dùng vùng BUY/SELL động + điều kiện MACD hist yếu dần cho SELL.
 
     zones = (sell_low, sell_high, buy_low, buy_high, recent_low, recent_high)
     """
@@ -387,14 +433,24 @@ def _eth_decide_action(
 
     action = "HOLD"
 
-    # SELL: vùng trên của range + RSI cao
-    if sell_low <= price <= sell_high and rsi_h4 >= ETH_RSI_SELL:
+    # Điều kiện MACD hist yếu đi: dương nhưng giảm so với cây trước
+    macd_weakening = macd_hist > 0 and prev_macd_hist is not None and macd_hist < prev_macd_hist
+
+    # SELL: vùng trên của range + RSI cao + MACD hist yếu đi
+    if (
+        sell_low <= price <= sell_high
+        and rsi_h4 >= ETH_RSI_SELL
+        and macd_weakening
+    ):
         action = "SELL"
         reasons.append(
             f"Price {price:.1f} in SELL zone & RSI_H4 {rsi_h4:.1f} >= {ETH_RSI_SELL}"
         )
+        reasons.append(
+            f"MACD hist weakening: current {macd_hist:.4f} < prev {prev_macd_hist:.4f}"
+        )
 
-    # BUY: vùng dưới của range + RSI thấp
+    # BUY: vùng dưới của range + RSI thấp (MACD tạm thời chưa ép buộc thêm)
     elif buy_low <= price <= buy_high and rsi_h4 <= ETH_RSI_BUY:
         action = "BUY"
         reasons.append(
@@ -404,7 +460,7 @@ def _eth_decide_action(
     else:
         reasons.append("No buy/sell condition matched (HOLD).")
 
-    # Thêm thông tin về MACD hist
+    # Info thêm về MACD hist (cho dễ đọc reason)
     if abs(macd_hist) < 0.5:
         reasons.append("MACD hist ~0 → momentum weak / sideway.")
     elif macd_hist > 0:
@@ -417,15 +473,14 @@ def _eth_decide_action(
         "reason": " | ".join(reasons),
     }
 
-
     
 # ===== ETH TRACKER CORE =====
 
 def run_eth_tracker_once(send_notify: bool = False):
     """
     Chạy 1 lần:
-    - Lấy giá, RSI H4, MACD H4 cho ETHUSDT
-    - Tính dynamic zones từ H4 range
+    - Lấy giá, RSI H4, MACD H4 (kèm prev hist) cho ETHUSDT
+    - Tính dynamic zones
     - Quyết định action
     - Lưu vào Supabase (ethdata)
     - (option) gửi Pushover nếu action != HOLD
@@ -437,19 +492,22 @@ def run_eth_tracker_once(send_notify: bool = False):
     # 1) Lấy price + RSI H4
     price, rsi_h4 = _rsi_latest(symbol, interval, RSI_PERIOD)
 
-    # 2) Lấy MACD H4
-    macd_line, macd_signal, macd_hist = _macd_latest(symbol, interval)
+    # 2) Lấy MACD H4 (kèm prev hist)
+    macd_line, macd_signal, macd_hist, prev_macd_hist = _macd_latest_with_prev(
+        symbol,
+        interval,
+    )
 
     # 3) Tính dynamic zones từ range gần đây
     zones = _compute_eth_zones_from_range(
         symbol,
         interval,
-        lookback=60,  # 60 nến H4 ≈ 10 ngày, tuỳ bạn chỉnh
+        lookback=60,
     )
     sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
 
     # 4) Quyết định hành động
-    decision = _eth_decide_action(price, rsi_h4, macd_hist, zones)
+    decision = _eth_decide_action(price, rsi_h4, macd_hist, prev_macd_hist, zones)
     action = decision["action"]
     reason = decision["reason"]
 
@@ -478,7 +536,7 @@ def run_eth_tracker_once(send_notify: bool = False):
         },
     }
 
-    # 7) Lưu vào Supabase (table: ethdata)
+    # 7) Lưu vào Supabase (ethdata) – schema cũ vẫn OK, chỉ log hist hiện tại
     try:
         supabase_admin.table("ethdata").insert(
             {
@@ -491,14 +549,13 @@ def run_eth_tracker_once(send_notify: bool = False):
                 "macd_hist": macd_hist,
                 "action": action,
                 "reason": reason,
-                # created_at để DB tự default now()
             }
         ).execute()
     except Exception as e:
         logging.error(f"[ETHTRACKER] Error inserting into Supabase: {e}")
 
     # 8) Gửi Pushover nếu cần
-    if send_notify and action != "HOLD":
+    if send_notify && action != "HOLD":
         try:
             title = f"ETH Tracker: {action}"
             msg_lines = [
@@ -506,13 +563,10 @@ def run_eth_tracker_once(send_notify: bool = False):
                 f"Reason: {reason}",
                 f"Price: {price}",
                 f"RSI H4: {rsi_h4}",
-                f"MACD: {macd_line:.4f} | Signal: {macd_signal:.4f} | Hist: {macd_hist:.4f}",
-                f"Sell zone: {sell_low:.1f} - {sell_high:.1f}",
-                f"Buy zone: {buy_low:.1f} - {buy_high:.1f}",
-                f"Range: {recent_low:.1f} - {recent_high:.1f}",
+                f"MACD: {macd_line:.4f} | Signal: {macc_signal:.4f} | Hist: {macd_hist:.4f}",
                 f"Time (UTC): {now_utc}",
             ]
-            _pushover_notify(title, "\n".join(msg_lines))
+            send_pushover(title, "\n".join(msg_lines))
         except Exception as e:
             logging.error(f"[ETHTRACKER] Error sending Pushover: {e}")
 
