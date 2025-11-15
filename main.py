@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import (
@@ -702,8 +703,23 @@ async def eth_dashboard(request: Request):
     sell_points = []
 
     for r in rows:
-        ts = r.get("created_at")
-        labels.append(ts)
+        ts_raw = r.get("created_at")
+
+        # Chuẩn hoá format thời gian cho đẹp: "YYYY-MM-DD HH:MM"
+        ts_str = None
+        try:
+            if isinstance(ts_raw, str):
+                # Supabase trả ISO dạng "2025-11-14T20:56:13.797961+00:00" hoặc "...Z"
+                iso_str = ts_raw.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(iso_str)
+                ts_str = dt.strftime("%Y-%m-%d %H:%M")
+            elif isinstance(ts_raw, datetime):
+                ts_str = ts_raw.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            # fallback: cắt chuỗi nếu parse fail
+            ts_str = str(ts_raw)[:16]
+    
+        labels.append(ts_str)
 
         price = float(r.get("price", 0))
         rsi = float(r.get("rsi_h4", 0))
