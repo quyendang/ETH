@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ETH Cycles</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020617;
+      color: #e5e7eb;
+      padding: 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+    th, td {
+      border-bottom: 1px solid #1f2937;
+      padding: 8px;
+      text-align: right;
+    }
+    th {
+      text-align: center;
+      background: #0f172a;
+    }
+    tr:nth-child(even) {
+      background: #020617;
+    }
+    tr:nth-child(odd) {
+      background: #020617;
+    }
+    .summary {
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ETH Growth – Cycles</h1>
+
+  <div class="summary">
+    <p>ETH ban đầu: <strong>{{ base_eth }}</strong></p>
+    <p>ETH free tích luỹ: <strong>{{ "%.4f"|format(delta_eth_total or 0) }}</strong></p>
+    <p>Tổng ETH ước tính: <strong>{{ "%.4f"|format(final_eth) }}</strong></p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Cycle</th>
+        <th>Sell Price</th>
+        <th>Buy Price</th>
+        <th>Amount ETH</th>
+        <th>ΔUSDT</th>
+        <th>ΔETH</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in cycles %}
+      <tr>
+        <td style="text-align: center;">{{ c.cycle_index }}</td>
+        <td>{{ "%.2f"|format(c.sell_price) }}</td>
+        <td>
+          {% if c.buy_price is not none %}
+            {{ "%.2f"|format(c.buy_price) }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td>{{ "%.4f"|format(c.amount_eth) }}</td>
+        <td>
+          {% if c.delta_usdt is not none %}
+            {{ "%.2f"|format(c.delta_usdt) }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td>
+          {% if c.delta_eth is not none %}
+            {{ "%.4f"|format(c.delta_eth) }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
