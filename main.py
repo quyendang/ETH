@@ -675,28 +675,109 @@ def run_eth_tracker_once(send_notify: bool = False):
 
 # ===== API ENDPOINT =====
 
-@_rsi_router.get("/eth-cycles", response_class=HTMLResponse)
-async def eth_cycles_view(request: Request):
-    resp = supabase_admin.table("eth_cycles") \
-        .select("*") \
-        .order("cycle_index", desc=False) \
-        .execute()
-    cycles = resp.data or []
+@_rsi_router.get("/eth", response_class=HTMLResponse)
+async def eth_dashboard(request: Request):
+    """
+    ETH dashboard:
+    - Chart price/RSI/MACD + BUY/SELL + zones
+    - Bảng các vòng xoay eth_cycles
+    """
+    # ====== 1) Lấy dữ liệu ETHDATA để vẽ chart ======
+    try:
+        resp = supabase_admin.table("ethdata") \
+            .select("*") \
+            .order("created_at", desc=False) \
+            .limit(500) \
+            .execute()
+        rows = resp.data or []
+    except Exception as e:
+        logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
+        rows = []
 
-    # Tính tổng ETH free tích luỹ
-    total_delta_eth = sum(float(c["delta_eth"]) for c in cycles if c.get("delta_eth") is not None)
+    labels = []
+    prices = []
+    rsi_values = []
+    macd_hist_values = []
+    buy_points = []
+    sell_points = []
+
+    for r in rows:
+        ts = r.get("created_at")
+        labels.append(ts)
+
+        price = float(r.get("price", 0))
+        rsi = float(r.get("rsi_h4", 0))
+        macd_hist = float(r.get("macd_hist", 0))
+        action = r.get("action", "HOLD")
+
+        prices.append(price)
+        rsi_values.append(rsi)
+        macd_hist_values.append(macd_hist)
+
+        if action == "BUY":
+            buy_points.append(price)
+            sell_points.append(None)
+        elif action == "SELL":
+            buy_points.append(None)
+            sell_points.append(price)
+        else:
+            buy_points.append(None)
+            sell_points.append(None)
+
+    # Dynamic zones từ logic hiện tại
+    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
+    try:
+        zones = _compute_eth_zones_from_range(
+            ETH_TRACKER_SYMBOL,
+            ETH_TRACKER_INTERVAL,
+            lookback=60,
+        )
+        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
+    except Exception as e:
+        logging.error(f"[ETHDATA] Error computing zones: {e}")
+
+    # ====== 2) Lấy dữ liệu ETH CYCLES ======
+    try:
+        cycles_resp = supabase_admin.table("eth_cycles") \
+            .select("*") \
+            .order("cycle_index", desc=False) \
+            .execute()
+        cycles = cycles_resp.data or []
+    except Exception as e:
+        logging.error(f"[ETHCYCLES] Error fetching cycles: {e}")
+        cycles = []
+
+    # Tổng ETH free tích luỹ
+    total_delta_eth = 0.0
+    for c in cycles:
+        d = c.get("delta_eth")
+        if d is not None:
+            total_delta_eth += float(d)
+
     final_eth = ETH_BASE_BALANCE + total_delta_eth
 
-    return templates.TemplateResponse(
-        "cycles.html",
-        {
-            "request": request,
-            "cycles": cycles,
-            "base_eth": ETH_BASE_BALANCE,
-            "delta_eth_total": total_delta_eth,
-            "final_eth": final_eth,
-        },
-    )
+    context = {
+        "request": request,
+        # Chart data
+        "labels": labels,
+        "prices": prices,
+        "rsi_values": rsi_values,
+        "macd_hist_values": macd_hist_values,
+        "buy_points": buy_points,
+        "sell_points": sell_points,
+        "buy_low": buy_low,
+        "buy_high": buy_high,
+        "sell_low": sell_low,
+        "sell_high": sell_high,
+        "recent_low": recent_low,
+        "recent_high": recent_high,
+        # Cycles
+        "cycles": cycles,
+        "base_eth": ETH_BASE_BALANCE,
+        "delta_eth_total": total_delta_eth,
+        "final_eth": final_eth,
+    }
+    return templates.TemplateResponse("eth_dashboard.html", context)
 
 
 
