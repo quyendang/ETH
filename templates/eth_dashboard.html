@@ -118,7 +118,7 @@
 
   <!-- PRICE CHART -->
   <div class="card">
-    <h2>ETH Price History</h2>
+    <h2>ETH Price History (overlay RSI H4)</h2>
     <canvas id="priceChart"></canvas>
   </div>
 
@@ -190,17 +190,17 @@
   const macdHistValues = {{ macd_hist_values | tojson }};
   const buyPoints = {{ buy_points | tojson }};
   const sellPoints = {{ sell_points | tojson }};
+  const rsiRaw = {{ rsi_values | tojson }};   // RSI H4 thật (0–100)
 
-  /* ===== SHIFT RSI: để RSI=50 trùng MACD=0 ===== */
-  let rsiRaw = {{ rsi_values | tojson }};
-  let rsiValues = rsiRaw.map(v => v - 50);  // RSI 50 trở thành 0
+  // RSI shifted dùng cho chart indicator (RSI=50 -> 0)
+  const rsiShifted = rsiRaw.map(v => v - 50);
 
   const buyLow  = {{ buy_low  if buy_low  is not none else 'null' }};
   const buyHigh = {{ buy_high if buy_high is not none else 'null' }};
   const sellLow = {{ sell_low if sell_low is not none else 'null' }};
   const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-  /* ===== PRICE ZONE PLUGIN ===== */
+  /* ===== PRICE ZONE PLUGIN (dùng y-price) ===== */
   const priceZonesPlugin = {
     id: 'priceZones',
     beforeDraw(chart) {
@@ -208,7 +208,8 @@
 
       const {ctx, chartArea, scales} = chart;
       const {left, right} = chartArea;
-      const y = scales.y;
+      const y = scales['y-price'];  // dùng trục giá
+
       if (!y) return;
 
       const yBuyLow  = y.getPixelForValue(buyLow);
@@ -229,50 +230,78 @@
   };
   Chart.register(priceZonesPlugin);
 
-  /* === CHART PRICE === */
+  /* === CHART PRICE + RSI OVERLAY === */
   new Chart(document.getElementById("priceChart"), {
     type: "line",
     data: {
       labels,
       datasets: [
+        // ETH Price
         {
           label: "ETH Price",
           data: prices,
           borderWidth: 1.8,
           borderColor: "#3270ff",
           pointRadius: 0,
-          tension: 0.25
+          tension: 0.25,
+          yAxisID: "y-price"
         },
+        // RSI overlay
+        {
+          label: "RSI H4",
+          data: rsiRaw,
+          borderWidth: 1.2,
+          borderColor: "#00aa6a",
+          pointRadius: 0,
+          tension: 0.25,
+          yAxisID: "y-rsi"
+        },
+        // BUY
         {
           label: "BUY",
           data: buyPoints,
           type: "scatter",
           pointRadius: 5,
           pointStyle: "triangle",
-          backgroundColor: "#0ca678"
+          backgroundColor: "#0ca678",
+          yAxisID: "y-price"
         },
+        // SELL
         {
           label: "SELL",
           data: sellPoints,
           type: "scatter",
           pointRadius: 5,
           pointStyle: "rectRot",
-          backgroundColor: "#e03131"
+          backgroundColor: "#e03131",
+          yAxisID: "y-price"
         }
       ]
     },
     options: {
       scales: {
         x: { ticks: { color: "#555" } },
-        y: { ticks: { color: "#555" } }
+        "y-price": {
+          position: "left",
+          ticks: { color: "#555" }
+        },
+        "y-rsi": {
+          position: "right",
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          ticks: { color: "#0ca678" },
+          title: { display: true, text: "RSI (H4)" }
+        }
       },
       plugins: {
         legend: { labels: { color: "#222" } }
       }
-    }
+    },
+    plugins: [priceZonesPlugin]
   });
 
-  /* === CHART RSI + MACD === */
+  /* === CHART RSI + MACD (RSI=50 trùng MACD=0) === */
   new Chart(document.getElementById("indicatorChart"), {
     data: {
       labels,
@@ -280,7 +309,7 @@
         {
           type: "line",
           label: "RSI H4",
-          data: rsiValues,  // shifted RSI
+          data: rsiShifted,  // dùng RSI đã shift
           borderColor: "#3270ff",
           borderWidth: 1.5,
           pointRadius: 0,
@@ -299,19 +328,19 @@
       scales: {
         x: { ticks: { color: "#555" } },
 
-        /* === SHIFTED RSI SCALE === */
+        // RSI shifted scale: -50..+50 (hiển thị lại 0..100)
         y1: {
           position: "left",
-          min: -50,  // RSI=0
-          max: +50,  // RSI=100
+          min: -50,
+          max: +50,
           ticks: {
             color: "#444",
-            callback: (value) => value + 50  // convert back to real RSI
+            callback: (value) => value + 50
           },
           title: { display: true, text: "RSI H4" }
         },
 
-        /* === MACD SCALE === */
+        // MACD scale
         y2: {
           position: "right",
           ticks: { color: "#444" },
