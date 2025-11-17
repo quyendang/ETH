@@ -687,7 +687,7 @@ async def eth_dashboard(request: Request):
     try:
         resp = supabase_admin.table("ethdata") \
             .select("*") \
-            .order("created_at", desc=True) \
+            .order("created_at", desc=False) \
             .limit(1000) \
             .execute()
         rows = resp.data or []
