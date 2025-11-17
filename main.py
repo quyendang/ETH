@@ -687,8 +687,8 @@ async def eth_dashboard(request: Request):
     try:
         resp = supabase_admin.table("ethdata") \
             .select("*") \
-            .order("created_at", desc=False) \
-            .limit(500) \
+            .order("created_at", desc=True) \
+            .limit(1000) \
             .execute()
         rows = resp.data or []
     except Exception as e:
