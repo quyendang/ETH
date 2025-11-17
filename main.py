@@ -39,7 +39,7 @@ templates = Jinja2Templates(directory="templates")
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_ADS_PATH = BASE_DIR / "app-ads.txt"
-
+APP_FAVICON_PATH = BASE_DIR / "favicon.ico"
 logging.basicConfig(level=logging.INFO)
 
 # Supabase ENV
@@ -1352,7 +1352,14 @@ def get_app_ads():
     headers = {"Cache-Control": "public, max-age=86400"}  # cache 1 ngày
     return FileResponse(APP_ADS_PATH, media_type="text/plain; charset=utf-8", headers=headers)
 
-
+@app.get("/favicon.ico", include_in_schema=False)
+def get_favicon_ico():
+    if not APP_FAVICON_PATH.exists():
+        raise HTTPException(status_code=404, detail="favicon.ico not found")
+    headers = {"Cache-Control": "public, max-age=86400"}  # cache 1 ngày
+    return FileResponse(APP_FAVICON_PATH, media_type="image/x-icon")
+        
+    
 # ------------------------------------------------------------------
 # 9) GOOGLE EID SCRAPER
 # ------------------------------------------------------------------
