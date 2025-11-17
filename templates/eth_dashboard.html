@@ -266,13 +266,13 @@
           if (ref) {
             const pct = ((lastValue - ref) / ref) * 100;
             const sign = pct > 0 ? "+" : "";
-            pctText = ` (${sign}${pct.toFixed(0)}%)`;
+            pctText = ` (${sign}${pct.toFixed(2)}%)`;
           }
         }
 
-        const text = `${lastValue.toFixed(0)}${pctText}`;
+        const text = `${Math.round(lastValue)}${pctText}`;
 
-        ctx.font = "bold 13px Inter";
+        ctx.font = "bold 11px Inter";
         const metrics = ctx.measureText(text);
         const padding = 6;
         const boxWidth = metrics.width + padding * 2;
@@ -305,9 +305,9 @@
 
         const arr = dataset.data;
         const lastValue = arr[arr.length - 1];
-        const text = `RSI ${lastValue.toFixed(1)}`;
+        const text = `${lastValue.toFixed(1)}`;
 
-        ctx.font = "bold 13px Inter";
+        ctx.font = "bold 11px Inter";
         const metrics = ctx.measureText(text);
         const padding = 6;
         const boxWidth = metrics.width + padding * 2;
