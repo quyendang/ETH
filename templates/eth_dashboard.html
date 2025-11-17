@@ -187,17 +187,20 @@
   /* === DATA === */
   const labels = {{ labels | tojson }};
   const prices = {{ prices | tojson }};
-  const rsiValues = {{ rsi_values | tojson }};
   const macdHistValues = {{ macd_hist_values | tojson }};
   const buyPoints = {{ buy_points | tojson }};
   const sellPoints = {{ sell_points | tojson }};
+
+  /* ===== SHIFT RSI: để RSI=50 trùng MACD=0 ===== */
+  let rsiRaw = {{ rsi_values | tojson }};
+  let rsiValues = rsiRaw.map(v => v - 50);  // RSI 50 trở thành 0
 
   const buyLow  = {{ buy_low  if buy_low  is not none else 'null' }};
   const buyHigh = {{ buy_high if buy_high is not none else 'null' }};
   const sellLow = {{ sell_low if sell_low is not none else 'null' }};
   const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-  /* === ZONE PLUGIN === */
+  /* ===== PRICE ZONE PLUGIN ===== */
   const priceZonesPlugin = {
     id: 'priceZones',
     beforeDraw(chart) {
@@ -277,7 +280,7 @@
         {
           type: "line",
           label: "RSI H4",
-          data: rsiValues,
+          data: rsiValues,  // shifted RSI
           borderColor: "#3270ff",
           borderWidth: 1.5,
           pointRadius: 0,
@@ -295,15 +298,24 @@
     options: {
       scales: {
         x: { ticks: { color: "#555" } },
+
+        /* === SHIFTED RSI SCALE === */
         y1: {
           position: "left",
-          min: 0,
-          max: 100,
-          ticks: { color: "#444" }
+          min: -50,  // RSI=0
+          max: +50,  // RSI=100
+          ticks: {
+            color: "#444",
+            callback: (value) => value + 50  // convert back to real RSI
+          },
+          title: { display: true, text: "RSI H4" }
         },
+
+        /* === MACD SCALE === */
         y2: {
           position: "right",
-          ticks: { color: "#444" }
+          ticks: { color: "#444" },
+          grid: { drawOnChartArea: false }
         }
       },
       plugins: {
