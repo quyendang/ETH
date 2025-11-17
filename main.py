@@ -680,21 +680,45 @@ def run_eth_tracker_once(send_notify: bool = False):
 async def eth_dashboard(request: Request):
     """
     ETH dashboard:
-    - Chart price/RSI/MACD + BUY/SELL + zones
-    - Bảng các vòng xoay eth_cycles
+    - Lấy tối đa 1000 rows mới nhất từ ethdata
+    - Tự động dọn các rows cũ hơn (chỉ giữ 1000 gần nhất)
+    - Render chart + cycles
     """
-    # ====== 1) Lấy dữ liệu ETHDATA để vẽ chart ======
+
+    # ===== 1) LẤY 1000 ROW MỚI NHẤT TỪ ETHDATA =====
     try:
-        resp = supabase_admin.table("ethdata") \
-            .select("*") \
-            .order("created_at", desc=False) \
-            .limit(1000) \
+        resp = (
+            supabase_admin.table("ethdata")
+            .select("*")
+            .order("created_at", desc=True)  # mới nhất trước
+            .limit(1000)
             .execute()
-        rows = resp.data or []
+        )
+        latest_rows_desc = resp.data or []
     except Exception as e:
         logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
-        rows = []
+        latest_rows_desc = []
 
+    # ===== 2) DỌN RÁC: CHỈ GIỮ LẠI 1000 ROW GẦN NHẤT =====
+    # latest_rows_desc: [newest, ..., oldest_of_1000]
+    if latest_rows_desc:
+        oldest_keep_created_at = latest_rows_desc[-1].get("created_at")
+        if oldest_keep_created_at:
+            try:
+                # Xóa tất cả rows có created_at < row cũ nhất trong 1000 rows đang giữ
+                (
+                    supabase_admin.table("ethdata")
+                    .delete()
+                    .lt("created_at", oldest_keep_created_at)
+                    .execute()
+                )
+            except Exception as e:
+                logging.error(f"[ETHDATA] Error cleaning old rows: {e}")
+
+    # Đảo ngược lại cho chart: oldest -> newest
+    rows = list(reversed(latest_rows_desc))
+
+    # ===== 3) BUILD DATA CHO CHART NHƯ CŨ =====
     labels = []
     prices = []
     rsi_values = []
@@ -705,20 +729,18 @@ async def eth_dashboard(request: Request):
     for r in rows:
         ts_raw = r.get("created_at")
 
-        # Chuẩn hoá format thời gian cho đẹp: "YYYY-MM-DD HH:MM"
+        # format "YYYY-MM-DD HH:MM"
         ts_str = None
         try:
             if isinstance(ts_raw, str):
-                # Supabase trả ISO dạng "2025-11-14T20:56:13.797961+00:00" hoặc "...Z"
                 iso_str = ts_raw.replace("Z", "+00:00")
                 dt = datetime.fromisoformat(iso_str)
                 ts_str = dt.strftime("%Y-%m-%d %H:%M")
             elif isinstance(ts_raw, datetime):
                 ts_str = ts_raw.strftime("%Y-%m-%d %H:%M")
         except Exception:
-            # fallback: cắt chuỗi nếu parse fail
             ts_str = str(ts_raw)[:16]
-    
+
         labels.append(ts_str)
 
         price = float(r.get("price", 0))
@@ -740,8 +762,7 @@ async def eth_dashboard(request: Request):
             buy_points.append(None)
             sell_points.append(None)
 
-    # Dynamic zones từ logic hiện tại
-    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
+    # ===== 4) ZONES + CYCLES + RENDER (phần này bạn giữ như hiện tại) =====
     try:
         zones = _compute_eth_zones_from_range(
             ETH_TRACKER_SYMBOL,
@@ -751,30 +772,26 @@ async def eth_dashboard(request: Request):
         sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
     except Exception as e:
         logging.error(f"[ETHDATA] Error computing zones: {e}")
+        sell_low = sell_high = buy_low = buy_high = recent_low = recent_high = None
 
-    # ====== 2) Lấy dữ liệu ETH CYCLES ======
-    try:
-        cycles_resp = supabase_admin.table("eth_cycles") \
-            .select("*") \
-            .order("cycle_index", desc=False) \
-            .execute()
-        cycles = cycles_resp.data or []
-    except Exception as e:
-        logging.error(f"[ETHCYCLES] Error fetching cycles: {e}")
-        cycles = []
+    # Lấy cycles, tính base_eth, delta_eth_total, final_eth ... như code bạn đang có
+    cycles_resp = (
+        supabase_admin.table("eth_cycles")
+        .select("*")
+        .order("cycle_index", desc=False)
+        .execute()
+    )
+    cycles = cycles_resp.data or []
 
-    # Tổng ETH free tích luỹ
-    total_delta_eth = 0.0
-    for c in cycles:
-        d = c.get("delta_eth")
-        if d is not None:
-            total_delta_eth += float(d)
-
+    total_delta_eth = sum(
+        float(c["delta_eth"])
+        for c in cycles
+        if c.get("delta_eth") is not None
+    )
     final_eth = ETH_BASE_BALANCE + total_delta_eth
 
     context = {
         "request": request,
-        # Chart data
         "labels": labels,
         "prices": prices,
         "rsi_values": rsi_values,
@@ -787,12 +804,12 @@ async def eth_dashboard(request: Request):
         "sell_high": sell_high,
         "recent_low": recent_low,
         "recent_high": recent_high,
-        # Cycles
         "cycles": cycles,
         "base_eth": ETH_BASE_BALANCE,
         "delta_eth_total": total_delta_eth,
         "final_eth": final_eth,
     }
+
     return templates.TemplateResponse("eth_dashboard.html", context)
 
 
