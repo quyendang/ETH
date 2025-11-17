@@ -205,11 +205,11 @@
     id: 'priceZones',
     beforeDraw(chart) {
       if (!buyLow || !buyHigh || !sellLow || !sellHigh) return;
+      if (chart.canvas.id !== "priceChart") return;
 
       const {ctx, chartArea, scales} = chart;
       const {left, right} = chartArea;
-      const y = scales['y-price'];  // dùng trục giá
-
+      const y = scales['y-price'];
       if (!y) return;
 
       const yBuyLow  = y.getPixelForValue(buyLow);
@@ -228,7 +228,84 @@
       ctx.restore();
     }
   };
+
+  /* ===== PLUGIN: Label giá cuối + % 24h ===== */
+  const lastValueLabelPlugin = {
+    id: 'lastValueLabel',
+    afterDraw(chart) {
+      if (chart.canvas.id !== "priceChart") return;
+
+      const { ctx } = chart;
+
+      chart.data.datasets.forEach((dataset, index) => {
+        if (dataset.label !== "ETH Price") return;
+
+        const meta = chart.getDatasetMeta(index);
+        const lastPoint = meta.data[meta.data.length - 1];
+        if (!lastPoint) return;
+
+        const dataArr = dataset.data;
+        const lastIndex = dataArr.length - 1;
+        const lastValue = dataArr[lastIndex];
+        if (lastValue === null || lastValue === undefined) return;
+
+        // 24h ~ 6 cây H4: lấy last-6
+        let pctText = "";
+        if (lastIndex >= 6) {
+          const ref = dataArr[lastIndex - 6];
+          if (ref && ref !== 0) {
+            const pct = ((lastValue - ref) / ref) * 100;
+            const sign = pct > 0 ? "+" : "";
+            pctText = ` (${sign}${pct.toFixed(2)}%)`;
+          }
+        }
+
+        const labelText = `${lastValue.toFixed(2)}${pctText}`;
+
+        ctx.save();
+        ctx.font = "bold 13px Inter, system-ui, -apple-system";
+        ctx.fillStyle = "#3270ff";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(labelText, lastPoint.x + 8, lastPoint.y);
+        ctx.restore();
+      });
+    }
+  };
+
+  /* ===== PLUGIN: Label RSI cuối cùng (overlay trên chart price) ===== */
+  const lastRSILabelPlugin = {
+    id: 'lastRSILabel',
+    afterDraw(chart) {
+      if (chart.canvas.id !== "priceChart") return;
+
+      const { ctx } = chart;
+
+      chart.data.datasets.forEach((dataset, index) => {
+        if (dataset.label !== "RSI H4") return;
+
+        const meta = chart.getDatasetMeta(index);
+        const lastPoint = meta.data[meta.data.length - 1];
+        if (!lastPoint) return;
+
+        const dataArr = dataset.data;
+        const lastValue = dataArr[dataArr.length - 1];
+        if (lastValue === null || lastValue === undefined) return;
+
+        ctx.save();
+        ctx.font = "bold 13px Inter, system-ui, -apple-system";
+        ctx.fillStyle = "#00aa6a";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`RSI ${lastValue.toFixed(1)}`, lastPoint.x + 8, lastPoint.y);
+        ctx.restore();
+      });
+    }
+  };
+
   Chart.register(priceZonesPlugin);
+  Chart.register(lastValueLabelPlugin);
+  Chart.register(lastRSILabelPlugin);
 
   /* === CHART PRICE + RSI OVERLAY === */
   new Chart(document.getElementById("priceChart"), {
@@ -297,8 +374,7 @@
       plugins: {
         legend: { labels: { color: "#222" } }
       }
-    },
-    plugins: [priceZonesPlugin]
+    }
   });
 
   /* === CHART RSI + MACD (RSI=50 trùng MACD=0) === */
