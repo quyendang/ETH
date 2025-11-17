@@ -200,12 +200,12 @@
   const sellLow = {{ sell_low if sell_low is not none else 'null' }};
   const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-  /* ===== PRICE ZONE PLUGIN (dùng y-price) ===== */
+  /* ===== PRICE ZONE PLUGIN ===== */
   const priceZonesPlugin = {
     id: 'priceZones',
     beforeDraw(chart) {
-      if (!buyLow || !buyHigh || !sellLow || !sellHigh) return;
       if (chart.canvas.id !== "priceChart") return;
+      if (!buyLow || !buyHigh || !sellLow || !sellHigh) return;
 
       const {ctx, chartArea, scales} = chart;
       const {left, right} = chartArea;
@@ -218,23 +218,35 @@
       const ySellHigh= y.getPixelForValue(sellHigh);
 
       ctx.save();
-
       ctx.fillStyle = "rgba(0, 200, 120, 0.12)";
       ctx.fillRect(left, yBuyHigh, right-left, yBuyLow-yBuyHigh);
-
       ctx.fillStyle = "rgba(255, 80, 80, 0.12)";
       ctx.fillRect(left, ySellHigh, right-left, ySellLow-ySellHigh);
-
       ctx.restore();
     }
   };
 
-  /* ===== PLUGIN: Label giá cuối + % 24h ===== */
+  /* ===== DRAW ROUNDED RECT ===== */
+  function drawRoundRect(ctx, x, y, w, h, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.lineTo(x+w-r, y);
+    ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+    ctx.lineTo(x+w, y+h-r);
+    ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+    ctx.lineTo(x+r, y+h);
+    ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+    ctx.lineTo(x, y+r);
+    ctx.quadraticCurveTo(x, y, x+r, y);
+    ctx.fill();
+  }
+
+  /* ===== LABEL GIÁ + %24H ===== */
   const lastValueLabelPlugin = {
     id: 'lastValueLabel',
     afterDraw(chart) {
       if (chart.canvas.id !== "priceChart") return;
-
       const { ctx } = chart;
 
       chart.data.datasets.forEach((dataset, index) => {
@@ -244,41 +256,44 @@
         const lastPoint = meta.data[meta.data.length - 1];
         if (!lastPoint) return;
 
-        const dataArr = dataset.data;
-        const lastIndex = dataArr.length - 1;
-        const lastValue = dataArr[lastIndex];
-        if (lastValue === null || lastValue === undefined) return;
+        const arr = dataset.data;
+        const lastIndex = arr.length - 1;
+        const lastValue = arr[lastIndex];
 
-        // 24h ~ 6 cây H4: lấy last-6
         let pctText = "";
         if (lastIndex >= 6) {
-          const ref = dataArr[lastIndex - 6];
-          if (ref && ref !== 0) {
+          const ref = arr[lastIndex - 6];
+          if (ref) {
             const pct = ((lastValue - ref) / ref) * 100;
             const sign = pct > 0 ? "+" : "";
             pctText = ` (${sign}${pct.toFixed(2)}%)`;
           }
         }
 
-        const labelText = `${lastValue.toFixed(2)}${pctText}`;
+        const text = `${lastValue.toFixed(2)}${pctText}`;
 
-        ctx.save();
-        ctx.font = "bold 13px Inter, system-ui, -apple-system";
-        ctx.fillStyle = "#3270ff";
+        ctx.font = "bold 13px Inter";
+        const metrics = ctx.measureText(text);
+        const padding = 6;
+        const boxWidth = metrics.width + padding * 2;
+        const boxHeight = 20;
+        const x = lastPoint.x + 8;
+        const y = lastPoint.y - 10;
+
+        drawRoundRect(ctx, x, y, boxWidth, boxHeight, 6, "#3270ff");
+        ctx.fillStyle = "#fff";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(labelText, lastPoint.x + 8, lastPoint.y);
-        ctx.restore();
+        ctx.fillText(text, x + padding, y + boxHeight/2);
       });
     }
   };
 
-  /* ===== PLUGIN: Label RSI cuối cùng (overlay trên chart price) ===== */
+  /* ===== LABEL RSI CUỐI ===== */
   const lastRSILabelPlugin = {
     id: 'lastRSILabel',
     afterDraw(chart) {
       if (chart.canvas.id !== "priceChart") return;
-
       const { ctx } = chart;
 
       chart.data.datasets.forEach((dataset, index) => {
@@ -288,17 +303,23 @@
         const lastPoint = meta.data[meta.data.length - 1];
         if (!lastPoint) return;
 
-        const dataArr = dataset.data;
-        const lastValue = dataArr[dataArr.length - 1];
-        if (lastValue === null || lastValue === undefined) return;
+        const arr = dataset.data;
+        const lastValue = arr[arr.length - 1];
+        const text = `RSI ${lastValue.toFixed(1)}`;
 
-        ctx.save();
-        ctx.font = "bold 13px Inter, system-ui, -apple-system";
-        ctx.fillStyle = "#00aa6a";
+        ctx.font = "bold 13px Inter";
+        const metrics = ctx.measureText(text);
+        const padding = 6;
+        const boxWidth = metrics.width + padding * 2;
+        const boxHeight = 20;
+        const x = lastPoint.x + 8;
+        const y = lastPoint.y - 10;
+
+        drawRoundRect(ctx, x, y, boxWidth, boxHeight, 6, "#00aa6a");
+        ctx.fillStyle = "#fff";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(`RSI ${lastValue.toFixed(1)}`, lastPoint.x + 8, lastPoint.y);
-        ctx.restore();
+        ctx.fillText(text, x + padding, y + boxHeight/2);
       });
     }
   };
@@ -313,7 +334,6 @@
     data: {
       labels,
       datasets: [
-        // ETH Price
         {
           label: "ETH Price",
           data: prices,
@@ -323,7 +343,6 @@
           tension: 0.25,
           yAxisID: "y-price"
         },
-        // RSI overlay
         {
           label: "RSI H4",
           data: rsiRaw,
@@ -333,7 +352,6 @@
           tension: 0.25,
           yAxisID: "y-rsi"
         },
-        // BUY
         {
           label: "BUY",
           data: buyPoints,
@@ -343,7 +361,6 @@
           backgroundColor: "#0ca678",
           yAxisID: "y-price"
         },
-        // SELL
         {
           label: "SELL",
           data: sellPoints,
@@ -385,7 +402,7 @@
         {
           type: "line",
           label: "RSI H4",
-          data: rsiShifted,  // dùng RSI đã shift
+          data: rsiShifted,
           borderColor: "#3270ff",
           borderWidth: 1.5,
           pointRadius: 0,
@@ -403,8 +420,6 @@
     options: {
       scales: {
         x: { ticks: { color: "#555" } },
-
-        // RSI shifted scale: -50..+50 (hiển thị lại 0..100)
         y1: {
           position: "left",
           min: -50,
@@ -415,8 +430,6 @@
           },
           title: { display: true, text: "RSI H4" }
         },
-
-        // MACD scale
         y2: {
           position: "right",
           ticks: { color: "#444" },
