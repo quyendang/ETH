@@ -1816,7 +1816,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         "buy_high": buy_high,
         "sell_low": sell_low,
         "sell_high": sell_high,
-        "big_orders": big_orders,  # 👈 dùng cho chart
+        "big_orders": [],  # 👈 dùng cho chart
     }
 
     return templates.TemplateResponse("symbol_dashboard.html", context)
