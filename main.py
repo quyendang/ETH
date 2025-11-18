@@ -9,7 +9,7 @@ import uuid
 import base64
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -146,6 +146,7 @@ ETH_CYCLE_SIZE = float(os.getenv("ETH_CYCLE_SIZE", "40"))   # số ETH bán/mua 
 ETH_BASE_BALANCE = float(os.getenv("ETH_BASE_BALANCE", "138"))  # tổng ETH ban đầu
 
 # Nếu chưa có: map interval -> milliseconds
+BIG_ORDER_THRESHOLD = 100_000  # > 100k USDT
 INTERVAL_MS_MAP = {
     "1m": 60_000,
     "5m": 5 * 60_000,
@@ -154,7 +155,6 @@ INTERVAL_MS_MAP = {
     "4h": 4 * 60 * 60_000,
     "1d": 24 * 60 * 60_000,
 }
-BIG_ORDER_THRESHOLD = 50_000  # >100k USDT
 TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
@@ -1689,71 +1689,91 @@ async def symbol_dashboard(request: Request, symbol: str):
 
     # 8) Lấy BIG ORDERS từ aggTrades theo đúng khoảng thời gian của chart
     interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
-    big_orders = [None] * min_len  # mỗi candle tối đa 1 giá big order (giữ trade big cuối cùng)
 
+    # Mỗi candle một giá big order (giữ notional lớn nhất trong candle)
+    big_orders = [None] * min_len
+    big_notional = [0.0] * min_len
+    
     if open_times_ms:
-        start_ts = open_times_ms[0]
-        end_ts = open_times_ms[-1] + interval_ms
-        base_url = "https://api.binance.com/api/v3/aggTrades"
-
-        try:
-            cur_start = start_ts
-            safety = 0
-
-            while cur_start < end_ts and safety < 100:
-                params = {
-                    "symbol": symbol,
-                    "startTime": cur_start,
-                    "endTime": end_ts,
-                    "limit": 1000,
-                }
-                r = requests.get(base_url, params=params, timeout=10)
-                r.raise_for_status()
-                trades = r.json()
-
-                if not isinstance(trades, list) or not trades:
-                    break
-
-                max_ts = cur_start
-                for t in trades:
-                    try:
-                        ts = int(t["T"])
-                        if ts < start_ts or ts >= end_ts:
-                            continue
-
-                        price = float(t["p"])
-                        qty = float(t["q"])
-                        notional = price * qty
-                        if notional < BIG_ORDER_THRESHOLD:
-                            continue
-
-                        # map trade này vào candle 4h tương ứng
-                        for i, ot in enumerate(open_times_ms):
-                            if ot <= ts < ot + interval_ms:
-                                # giữ giá big order cuối cùng trong candle
-                                big_orders[i] = price
-                                break
-
-                        if ts > max_ts:
-                            max_ts = ts
-                    except Exception:
+        # Giới hạn khoảng quét: 30 ngày gần nhất nhưng không sớm hơn cây nến đầu chart
+        now = datetime.utcnow()
+        start_30 = now - timedelta(days=30)
+        first_candle_dt = datetime.utcfromtimestamp(open_times_ms[0] / 1000.0)
+    
+        start_dt = max(start_30, first_candle_dt)
+        # End theo cây nến cuối cùng trên chart
+        last_candle_end_dt = datetime.utcfromtimestamp(
+            (open_times_ms[-1] + interval_ms) / 1000.0
+        )
+    
+        logging.info(
+            f"[BIG_ORDERS] Fetching aggTrades for {symbol} from {start_dt} to {last_candle_end_dt} (30d window)"
+        )
+    
+        cur = start_dt
+        end_dt = last_candle_end_dt
+    
+        while cur < end_dt:
+            next_t = cur + timedelta(hours=1)
+            # Không quét quá end_dt
+            if next_t > end_dt:
+                next_t = end_dt
+    
+            start_ms = int(cur.timestamp() * 1000)
+            end_ms = int(next_t.timestamp() * 1000)
+    
+            try:
+                resp = requests.get(
+                    "https://api.binance.com/api/v3/aggTrades",
+                    params={
+                        "symbol": symbol,
+                        "startTime": start_ms,
+                        "endTime": end_ms,
+                        "limit": 1000,
+                    },
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                trades = resp.json()
+            except Exception as e:
+                logging.error(
+                    f"[BIG_ORDERS] Error fetching aggTrades {symbol} from {cur} to {next_t}: {e}"
+                )
+                cur = next_t
+                continue
+    
+            if not isinstance(trades, list) or not trades:
+                cur = next_t
+                continue
+    
+            for t in trades:
+                try:
+                    ts = int(t["T"])  # ms
+                    price = float(t["p"])
+                    qty = float(t["q"])
+                    notional = price * qty
+    
+                    if notional < BIG_ORDER_THRESHOLD:
                         continue
-
-                # nếu ít hơn 1000 trade thì hết data
-                if len(trades) < 1000:
-                    break
-
-                # nếu đã đi tới cuối range thì dừng
-                if max_ts <= cur_start:
-                    break
-
-                cur_start = max_ts + 1
-                safety += 1
-
-        except Exception as e:
-            logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
-
-    logging.info(f"[BIG_ORDERS] Found {sum(1 for x in big_orders if x is not None)} candles có big orders cho {symbol}")
+    
+                    # Map trade này vào candle 4H tương ứng
+                    for i, ot in enumerate(open_times_ms):
+                        # candle time range: [ot, ot + interval_ms)
+                        if ot <= ts < ot + interval_ms:
+                            # Chỉ giữ notional lớn nhất trong candle
+                            if notional > big_notional[i]:
+                                big_notional[i] = notional
+                                big_orders[i] = price
+                            break
+                except Exception:
+                    continue
+    
+            # Tăng 1 giờ
+            cur = next_t
+    
+        logging.info(
+            f"[BIG_ORDERS] {symbol}: {sum(1 for x in big_orders if x is not None)} candles có big orders >= {BIG_ORDER_THRESHOLD}"
+        )
     # 9) Build rows_json cho JS
     rows_json = []
     for i in range(min_len):
