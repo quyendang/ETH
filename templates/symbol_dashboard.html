@@ -311,7 +311,45 @@
     const sellLow = {{ sell_low if sell_low is not none else 'null' }};
     const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-    // ==== 2. Tính BUY / SELL signals & trạng thái cuối ====
+    // ==== 2. Plugin vẽ BUY/SELL ZONES trên Chart Price ====
+    const priceZonesPlugin = {
+      id: 'priceZones',
+      beforeDraw(chart, args, pluginOptions) {
+        if (chart.canvas.id !== "priceRsiChart") return;
+        if (buyLow == null || buyHigh == null || sellLow == null || sellHigh == null) return;
+
+        const { ctx, chartArea, scales } = chart;
+        if (!chartArea) return;
+        const { top, bottom, left, right } = chartArea;
+        const yScale = scales['y']; // trục giá
+
+        if (!yScale) return;
+
+        ctx.save();
+
+        // BUY ZONE (xanh lá nhạt)
+        const yBuyLow  = yScale.getPixelForValue(buyLow);
+        const yBuyHigh = yScale.getPixelForValue(buyHigh);
+        const buyTop    = Math.min(yBuyHigh, yBuyLow);
+        const buyBottom = Math.max(yBuyHigh, yBuyLow);
+
+        ctx.fillStyle = "rgba(34, 197, 94, 0.12)";
+        ctx.fillRect(left, buyTop, right - left, buyBottom - buyTop);
+
+        // SELL ZONE (đỏ nhạt)
+        const ySellLow  = yScale.getPixelForValue(sellLow);
+        const ySellHigh = yScale.getPixelForValue(sellHigh);
+        const sellTop    = Math.min(ySellHigh, ySellLow);
+        const sellBottom = Math.max(ySellHigh, ySellLow);
+
+        ctx.fillStyle = "rgba(239, 68, 68, 0.12)";
+        ctx.fillRect(left, sellTop, right - left, sellBottom - sellTop);
+
+        ctx.restore();
+      }
+    };
+
+    // ==== 3. Tính BUY / SELL signals & trạng thái cuối ====
     function computeSignals(
       prices, rsiArr, bbU, bbL, emaF, emaS, stochArr, wrArr,
       buyLow, buyHigh, sellLow, sellHigh
@@ -384,7 +422,7 @@
       buyLow, buyHigh, sellLow, sellHigh
     );
 
-    // ==== 3. Cập nhật badge trạng thái cuối ====
+    // ==== 4. Cập nhật badge trạng thái cuối ====
     const stateEl = document.getElementById("lastStateBadge");
     if (stateEl) {
       stateEl.textContent = lastState;
@@ -398,7 +436,7 @@
       }
     }
 
-    // ==== 4. Chuẩn bị dataset BUY / SELL (scatter) cho Chart.js ====
+    // ==== 5. Chuẩn bị dataset BUY / SELL (scatter) cho Chart.js ====
     function buildSignalPoints(signals) {
       const pts = [];
       for (let i = 0; i < signals.length; i++) {
@@ -412,7 +450,10 @@
     const buyPoints  = buildSignalPoints(buySignals);
     const sellPoints = buildSignalPoints(sellSignals);
 
-    // ==== 5. Vẽ chart Price + RSI + signals ====
+    // Đăng ký plugin zones
+    Chart.register(priceZonesPlugin);
+
+    // ==== 6. Vẽ chart Price + RSI + signals + zones ====
     const ctxPriceRsi = document.getElementById("priceRsiChart").getContext("2d");
 
     const priceRsiChart = new Chart(ctxPriceRsi, {
