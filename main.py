@@ -145,6 +145,15 @@ ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "4h")
 ETH_CYCLE_SIZE = float(os.getenv("ETH_CYCLE_SIZE", "40"))   # số ETH bán/mua mỗi vòng
 ETH_BASE_BALANCE = float(os.getenv("ETH_BASE_BALANCE", "138"))  # tổng ETH ban đầu
 
+# Nếu chưa có: map interval -> milliseconds
+INTERVAL_MS_MAP = {
+    "1m": 60_000,
+    "5m": 5 * 60_000,
+    "15m": 15 * 60_000,
+    "1h": 60 * 60_000,
+    "4h": 4 * 60 * 60_000,
+    "1d": 24 * 60 * 60_000,
+}
 TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
@@ -1565,10 +1574,11 @@ def get_eid(version: str = "v9.2.0"):
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
     """
-    Dashboard theo dõi bất kỳ symbol nào (ví dụ: BTCUSDT, ETHUSDT, BNBUSDT...)
-    - Hiển thị: giá hiện tại, RSI hiện tại, % change 24h (xấp xỉ 6 cây H4)
-    - Hiển thị Buy/Sell zone hiện tại
-    - Vẽ chart Price + RSI overlay + BUY/SELL signals (JS tự tính trên client)
+    Dashboard theo dõi bất kỳ symbol nào (BTCUSDT, ETHUSDT, BNBUSDT...)
+    - Giá, RSI, %change 24h
+    - Buy/Sell zone
+    - BUY/SELL signals (RSI + BB + Stoch + Williams %R + EMA trend)
+    - Big orders > 100k$ từ Binance aggTrades (vẽ lên chart)
     """
     symbol = symbol.upper()
 
@@ -1583,6 +1593,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     closes: list[float] = []
     highs: list[float] = []
     lows: list[float] = []
+    open_times_ms_all: list[int] = []
 
     for k in klines:
         try:
@@ -1594,6 +1605,7 @@ async def symbol_dashboard(request: Request, symbol: str):
             low = float(k[3])
             close = float(k[4])
 
+            open_times_ms_all.append(open_time_ms)
             highs.append(high)
             lows.append(low)
             closes.append(close)
@@ -1601,8 +1613,8 @@ async def symbol_dashboard(request: Request, symbol: str):
             logging.warning(f"[SYMBOL DASH] Bad kline row for {symbol}: {e}")
             continue
 
-    # Nếu không có dữ liệu → render trống, không lỗi
     if not closes:
+        # Không có dữ liệu
         context = {
             "request": request,
             "symbol": symbol,
@@ -1614,6 +1626,7 @@ async def symbol_dashboard(request: Request, symbol: str):
             "buy_high": None,
             "sell_low": None,
             "sell_high": None,
+            "big_orders": [],
         }
         return templates.TemplateResponse("symbol_dashboard.html", context)
 
@@ -1626,7 +1639,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     # 3) EMA/SMA
     ema_fast = _compute_ema_series(closes, 12)
     ema_slow = _compute_ema_series(closes, 26)
-    sma_50 = _sma_series(closes, 50)  # hiện chưa dùng nhưng có thể dùng sau
+    sma_50 = _sma_series(closes, 50)  # chưa dùng nhưng để dành
 
     # 4) Bollinger Bands
     bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
@@ -1643,7 +1656,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     except Exception as e:
         logging.error(f"[SYMBOL DASH] Error computing zones for {symbol}: {e}")
 
-    # 7) Đồng bộ chiều dài tất cả các mảng
+    # 7) Đồng bộ chiều dài
     n = len(closes)
     min_len = min(
         n,
@@ -1656,6 +1669,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         len(bb_lower),
         len(stoch_k),
         len(williams_r),
+        len(open_times_ms_all),
     )
 
     labels = labels[-min_len:]
@@ -1670,8 +1684,44 @@ async def symbol_dashboard(request: Request, symbol: str):
     williams_r = williams_r[-min_len:]
     highs = highs[-min_len:]
     lows = lows[-min_len:]
+    open_times_ms = open_times_ms_all[-min_len:]
 
-    # 8) Build rows_json cho JS
+    # 8) Lấy BIG ORDERS từ Binance aggTrades (value >= 100k USDT)
+    interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
+    big_orders = [None] * min_len  # cùng độ dài với labels/prices
+
+    try:
+        resp = requests.get(
+            "https://api.binance.com/api/v3/aggTrades",
+            params={
+                "symbol": symbol,
+                "limit": 1000,  # tối đa 1000 trade gần nhất
+            },
+            timeout=5,
+        )
+        trades = resp.json()
+        if isinstance(trades, list):
+            for t in trades:
+                try:
+                    price = float(t["p"])
+                    qty = float(t["q"])
+                    ts = int(t["T"])  # ms
+                    notional = price * qty
+                    if notional < 100_000:
+                        continue
+
+                    # Gán trade vào candle 4H tương ứng
+                    for i, ot in enumerate(open_times_ms):
+                        if ot <= ts < ot + interval_ms:
+                            # Lưu giá trade lớn này (có thể overwrite, giữ cái cuối cùng trong candle)
+                            big_orders[i] = price
+                            break
+                except Exception:
+                    continue
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
+
+    # 9) Build rows_json cho JS
     rows_json = []
     for i in range(min_len):
         rows_json.append(
@@ -1689,13 +1739,13 @@ async def symbol_dashboard(request: Request, symbol: str):
             }
         )
 
-    # 9) Giá hiện tại, RSI hiện tại
+    # 10) Giá hiện tại, RSI hiện tại, %change 24h
     last_price = closes[-1]
     last_rsi = rsi_values[-1] if rsi_values else None
 
-    # 10) % change 24h (xấp xỉ 6 cây H4)
     change_24h = None
     try:
+        # ~24h ≈ 6 nến 4h
         if len(closes) >= 7:
             ref = closes[-7]
             if ref != 0:
@@ -1714,6 +1764,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         "buy_high": buy_high,
         "sell_low": sell_low,
         "sell_high": sell_high,
+        "big_orders": big_orders,  # 👈 thêm vào context
     }
 
     return templates.TemplateResponse("symbol_dashboard.html", context)
