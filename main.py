@@ -154,7 +154,7 @@ INTERVAL_MS_MAP = {
     "4h": 4 * 60 * 60_000,
     "1d": 24 * 60 * 60_000,
 }
-BIG_ORDER_THRESHOLD = 100_000  # >100k USDT
+BIG_ORDER_THRESHOLD = 50_000  # >100k USDT
 TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
