@@ -675,6 +675,91 @@ def run_eth_tracker_once(send_notify: bool = False):
 
 
 # ===== API ENDPOINT =====
+@_rsi_router.get("/btc", response_class=HTMLResponse)
+async def btc_dashboard(request: Request):
+    """
+    BTC dashboard:
+    - Lấy dữ liệu trực tiếp từ Binance (klines)
+    - Tính dynamic BUY/SELL zones giống ETH
+    - Vẽ chart BTC price + RSI + MACD
+    """
+
+    symbol = "BTCUSDT"
+    interval = ETH_TRACKER_INTERVAL  # dùng cùng khung (ví dụ "4h")
+
+    # 1) Lấy klines BTCUSDT
+    try:
+        klines = _rsi_fetch_klines(symbol, interval, limit=200)
+    except Exception as e:
+        logging.error(f"[BTC DASH] Error fetching klines: {e}")
+        klines = []
+
+    labels: list[str] = []
+    closes: list[float] = []
+
+    for k in klines:
+        # format giống ETH: "YYYY-MM-DD HH:MM"
+        open_time_ms = int(k[0])
+        dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
+        labels.append(dt.strftime("%Y-%m-%d %H:%M"))
+        closes.append(float(k[4]))
+
+    # 2) Tính RSI series cho BTC
+    rsi_values: list[float] = []
+    try:
+        rsi_values = _compute_rsi_series(closes, RSI_PERIOD)
+    except Exception as e:
+        logging.error(f"[BTC DASH] Error computing RSI: {e}")
+        # fallback: toàn 50 nếu lỗi
+        rsi_values = [50.0] * len(closes)
+
+    # Đồng bộ độ dài labels / closes / rsi
+    min_len = min(len(labels), len(closes), len(rsi_values))
+    labels = labels[-min_len:]
+    closes = closes[-min_len:]
+    rsi_values = rsi_values[-min_len:]
+
+    # 3) Tính MACD series cho BTC
+    macd_hist_values: list[float] = []
+    try:
+        _, _, macd_hist_values = _compute_macd_series(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+    except Exception as e:
+        logging.error(f"[BTC DASH] Error computing MACD: {e}")
+        macd_hist_values = [0.0] * len(closes)
+
+    # Đồng bộ thêm lần nữa (phòng trường hợp MACD có ít điểm hơn)
+    min_len = min(len(labels), len(closes), len(rsi_values), len(macd_hist_values))
+    labels = labels[-min_len:]
+    closes = closes[-min_len:]
+    rsi_values = rsi_values[-min_len:]
+    macd_hist_values = macd_hist_values[-min_len:]
+
+    # 4) Dynamic BUY/SELL zones cho BTC (tái dùng hàm ETH)
+    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
+    try:
+        zones = _compute_eth_zones_from_range(symbol, interval, lookback=60)
+        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
+    except Exception as e:
+        logging.error(f"[BTC DASH] Error computing zones: {e}")
+
+    context = {
+        "request": request,
+        "symbol": symbol,
+        "labels": labels,
+        "prices": closes,
+        "rsi_values": rsi_values,
+        "macd_hist_values": macd_hist_values,
+        "buy_low": buy_low,
+        "buy_high": buy_high,
+        "sell_low": sell_low,
+        "sell_high": sell_high,
+        "recent_low": recent_low,
+        "recent_high": recent_high,
+    }
+
+    return templates.TemplateResponse("btc_dashboard.html", context)
+
+
 
 @_rsi_router.get("/eth", response_class=HTMLResponse)
 async def eth_dashboard(request: Request):
