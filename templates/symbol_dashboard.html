@@ -20,9 +20,7 @@
       --muted: #e5e7eb;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -74,20 +72,9 @@
       margin-left: 8px;
     }
 
-    .state-buy {
-      background-color: var(--green);
-      color: #ffffff;
-    }
-
-    .state-sell {
-      background-color: var(--red);
-      color: #ffffff;
-    }
-
-    .state-hold {
-      background-color: #6b7280;
-      color: #ffffff;
-    }
+    .state-buy  { background-color: var(--green); color: #ffffff; }
+    .state-sell { background-color: var(--red);   color: #ffffff; }
+    .state-hold { background-color: #6b7280;     color: #ffffff; }
 
     .header-sub {
       font-size: 0.9rem;
@@ -139,13 +126,8 @@
       color: #ffffff;
     }
 
-    .change-pos {
-      background-color: var(--green);
-    }
-
-    .change-neg {
-      background-color: var(--red);
-    }
+    .change-pos { background-color: var(--green); }
+    .change-neg { background-color: var(--red); }
 
     .panel {
       background: var(--card-bg);
@@ -171,11 +153,8 @@
       font-weight: 400;
     }
 
-    canvas {
-      max-width: 100%;
-    }
+    canvas { max-width: 100%; }
 
-    /* vùng BUY / SELL zone (legend) */
     .zone-legend {
       display: inline-flex;
       align-items: center;
@@ -190,18 +169,12 @@
       border-radius: 999px;
     }
 
-    .legend-buy {
-      background: rgba(34, 197, 94, 0.12);
-    }
-
-    .legend-sell {
-      background: rgba(239, 68, 68, 0.12);
-    }
+    .legend-buy  { background: rgba(34, 197, 94, 0.12); }
+    .legend-sell { background: rgba(239, 68, 68, 0.12); }
+    .legend-big  { background: rgba(168, 85, 247, 0.18); }
 
     @media (max-width: 640px) {
-      .header {
-        align-items: flex-start;
-      }
+      .header { align-items: flex-start; }
     }
   </style>
 </head>
@@ -219,7 +192,7 @@
           <span id="lastStateBadge" class="badge-state state-hold">HOLD</span>
         </div>
         <div class="header-sub">
-          Auto-tracking Price, RSI, zones & BUY/SELL signals (4H data)
+          Auto-tracking Price, RSI, zones, Big Orders & BUY/SELL signals (4H data)
         </div>
       </div>
     </header>
@@ -277,12 +250,13 @@
     <section class="panel">
       <div class="panel-title">
         <div>
-          Giá {{ symbol }} (Price + RSI overlay + Buy/Sell signals)
+          Giá {{ symbol }} (Price + RSI + Buy/Sell + Big Orders)
           <span class="sub">4H candles</span>
         </div>
         <div class="zone-legend">
           <span class="legend-box legend-buy"></span> Buy zone
           <span class="legend-box legend-sell"></span> Sell zone
+          <span class="legend-box legend-big"></span> Big orders &gt; 100k$
         </div>
       </div>
       <canvas id="priceRsiChart" height="260"></canvas>
@@ -292,7 +266,7 @@
   <!-- ================= SCRIPT ================= -->
   <script>
     // ==== 1. Dữ liệu từ backend ====
-    const rows = {{ rows_json | tojson }};  // [{time_str, price, rsi_h4, macd_hist, ema_fast, ema_slow, bb_upper, bb_lower, stoch_k, wr}, ...]
+    const rows = {{ rows_json | tojson }};
     const symbol = "{{ symbol }}";
 
     const labels    = rows.map(r => r.time_str);
@@ -311,7 +285,10 @@
     const sellLow = {{ sell_low if sell_low is not none else 'null' }};
     const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-    // ==== 2. Plugin vẽ BUY/SELL ZONES trên Chart Price ====
+    // BIG ORDERS: mảng cùng độ dài labels, giá trade big hoặc null
+    const bigOrdersRaw = {{ big_orders | tojson }};
+
+    // ==== 2. Plugin vẽ BUY/SELL ZONES ====
     const priceZonesPlugin = {
       id: 'priceZones',
       beforeDraw(chart, args, pluginOptions) {
@@ -320,14 +297,14 @@
 
         const { ctx, chartArea, scales } = chart;
         if (!chartArea) return;
-        const { top, bottom, left, right } = chartArea;
-        const yScale = scales['y']; // trục giá
+        const { left, right } = chartArea;
+        const yScale = scales['y'];
 
         if (!yScale) return;
 
         ctx.save();
 
-        // BUY ZONE (xanh lá nhạt)
+        // BUY ZONE
         const yBuyLow  = yScale.getPixelForValue(buyLow);
         const yBuyHigh = yScale.getPixelForValue(buyHigh);
         const buyTop    = Math.min(yBuyHigh, yBuyLow);
@@ -336,7 +313,7 @@
         ctx.fillStyle = "rgba(34, 197, 94, 0.12)";
         ctx.fillRect(left, buyTop, right - left, buyBottom - buyTop);
 
-        // SELL ZONE (đỏ nhạt)
+        // SELL ZONE
         const ySellLow  = yScale.getPixelForValue(sellLow);
         const ySellHigh = yScale.getPixelForValue(sellHigh);
         const sellTop    = Math.min(ySellHigh, ySellLow);
@@ -370,27 +347,27 @@
         const stoch = stochArr[i];
         const wr    = wrArr[i];
 
-        // --- điều kiện BUY ---
-        const isRsiOversold   = rsi   !== null && rsi   !== undefined && rsi < 40;
-        const isBbTouchLow    = bl    !== null && bl    !== undefined && price <= bl;
-        const isStochLow      = stoch !== null && stoch !== undefined && stoch < 20;
-        const isWrLow         = wr    !== null && wr    !== undefined && wr   < -80;
-        const trendUp         = ef    !== null && es    !== null && ef >= es;
+        // BUY conditions
+        const isRsiOversold   = rsi   != null && rsi < 40;
+        const isBbTouchLow    = bl    != null && price <= bl;
+        const isStochLow      = stoch != null && stoch < 20;
+        const isWrLow         = wr    != null && wr   < -80;
+        const trendUp         = ef    != null && es   != null && ef >= es;
 
         const condBuy1 = isRsiOversold && isBbTouchLow;
         const condBuy2 = isStochLow && isWrLow && trendUp;
 
-        // --- điều kiện SELL ---
-        const isRsiOverbought = rsi   !== null && rsi   !== undefined && rsi > 60;
-        const isBbTouchHigh   = bu    !== null && bu    !== undefined && price >= bu;
-        const isStochHigh     = stoch !== null && stoch !== undefined && stoch > 80;
-        const isWrHigh        = wr    !== null && wr    !== undefined && wr   > -20;
-        const trendDown       = ef    !== null && es    !== null && ef <= es;
+        // SELL conditions
+        const isRsiOverbought = rsi   != null && rsi > 60;
+        const isBbTouchHigh   = bu    != null && price >= bu;
+        const isStochHigh     = stoch != null && stoch > 80;
+        const isWrHigh        = wr    != null && wr   > -20;
+        const trendDown       = ef    != null && es   != null && ef <= es;
 
         const condSell1 = isRsiOverbought && isBbTouchHigh;
         const condSell2 = isStochHigh && isWrHigh && trendDown;
 
-        // --- Giới hạn bởi BUY / SELL zone ---
+        // giới hạn theo zone
         let inBuyZone = true;
         if (buyLow !== null && buyHigh !== null) {
           inBuyZone = price >= buyLow && price <= buyHigh;
@@ -403,7 +380,6 @@
         const isBuySignal  = (condBuy1  || condBuy2)  && inBuyZone;
         const isSellSignal = (condSell1 || condSell2) && inSellZone;
 
-        // Ưu tiên: không đánh dấu nếu BUY & SELL cùng lúc
         if (isBuySignal && !isSellSignal) {
           buySignals[i] = price;
           lastState = "BUY";
@@ -411,7 +387,6 @@
           sellSignals[i] = price;
           lastState = "SELL";
         }
-        // nếu không có signal thì giữ nguyên lastState
       }
 
       return { buySignals, sellSignals, lastState };
@@ -422,21 +397,17 @@
       buyLow, buyHigh, sellLow, sellHigh
     );
 
-    // ==== 4. Cập nhật badge trạng thái cuối ====
+    // ==== 4. Badge trạng thái ====
     const stateEl = document.getElementById("lastStateBadge");
     if (stateEl) {
       stateEl.textContent = lastState;
       stateEl.classList.remove("state-buy", "state-sell", "state-hold");
-      if (lastState === "BUY") {
-        stateEl.classList.add("state-buy");
-      } else if (lastState === "SELL") {
-        stateEl.classList.add("state-sell");
-      } else {
-        stateEl.classList.add("state-hold");
-      }
+      if (lastState === "BUY")   stateEl.classList.add("state-buy");
+      else if (lastState === "SELL") stateEl.classList.add("state-sell");
+      else stateEl.classList.add("state-hold");
     }
 
-    // ==== 5. Chuẩn bị dataset BUY / SELL (scatter) cho Chart.js ====
+    // ==== 5. Build points cho scatter ====
     function buildSignalPoints(signals) {
       const pts = [];
       for (let i = 0; i < signals.length; i++) {
@@ -447,13 +418,13 @@
       return pts;
     }
 
-    const buyPoints  = buildSignalPoints(buySignals);
-    const sellPoints = buildSignalPoints(sellSignals);
+    const buyPoints      = buildSignalPoints(buySignals);
+    const sellPoints     = buildSignalPoints(sellSignals);
+    const bigOrderPoints = buildSignalPoints(bigOrdersRaw);
 
-    // Đăng ký plugin zones
     Chart.register(priceZonesPlugin);
 
-    // ==== 6. Vẽ chart Price + RSI + signals + zones ====
+    // ==== 6. Chart Price + RSI + BUY/SELL + Big Orders ====
     const ctxPriceRsi = document.getElementById("priceRsiChart").getContext("2d");
 
     const priceRsiChart = new Chart(ctxPriceRsi, {
@@ -501,23 +472,25 @@
             pointRotation: 180,
             pointRadius: 6,
             pointHoverRadius: 7
+          },
+          {
+            type: "scatter",
+            label: "Big Orders > 100k$",
+            data: bigOrderPoints,
+            yAxisID: "y",
+            borderColor: "rgba(168, 85, 247, 1)",
+            backgroundColor: "rgba(168, 85, 247, 1)",
+            pointRadius: 5,
+            pointHoverRadius: 7
           }
         ]
       },
       options: {
         responsive: true,
-        interaction: {
-          mode: "index",
-          intersect: false
-        },
+        interaction: { mode: "index", intersect: false },
         plugins: {
-          legend: {
-            position: "top"
-          },
-          tooltip: {
-            mode: "index",
-            intersect: false
-          }
+          legend: { position: "top" },
+          tooltip: { mode: "index", intersect: false }
         },
         scales: {
           y: {
@@ -535,10 +508,7 @@
             grid: { drawOnChartArea: false }
           },
           x: {
-            ticks: {
-              maxRotation: 60,
-              minRotation: 45
-            }
+            ticks: { maxRotation: 60, minRotation: 45 }
           }
         }
       }
