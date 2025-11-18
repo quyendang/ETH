@@ -1691,7 +1691,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     # interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
 
     # # Mỗi candle một giá big order (giữ notional lớn nhất trong candle)
-    # big_orders = [None] * min_len
+    big_orders = [None] * min_len
     # big_notional = [0.0] * min_len
     
     # if open_times_ms:
