@@ -755,8 +755,8 @@ def run_eth_tracker_once(send_notify: bool = False):
 
 
 # ===== API ENDPOINT =====
-@_rsi_router.get("/btc", response_class=HTMLResponse)
-async def btc_dashboard(request: Request):
+@_rsi_router.get("/{symbol}", response_class=HTMLResponse)
+async def btc_dashboard(request: Request,  symbol: str):
     """
     BTC dashboard:
     - Lấy dữ liệu trực tiếp từ Binance (klines)
@@ -764,7 +764,7 @@ async def btc_dashboard(request: Request):
     - Vẽ chart BTC price + RSI + MACD
     """
 
-    symbol = "BTCUSDT"
+    # symbol = "BTCUSDT"
     interval = ETH_TRACKER_INTERVAL  # dùng cùng khung (ví dụ "4h")
 
     # 1) Lấy klines BTCUSDT
