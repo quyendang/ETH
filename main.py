@@ -154,6 +154,7 @@ INTERVAL_MS_MAP = {
     "4h": 4 * 60 * 60_000,
     "1d": 24 * 60 * 60_000,
 }
+
 TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
@@ -1686,40 +1687,75 @@ async def symbol_dashboard(request: Request, symbol: str):
     lows = lows[-min_len:]
     open_times_ms = open_times_ms_all[-min_len:]
 
-    # 8) Lấy BIG ORDERS từ Binance aggTrades (value >= 100k USDT)
+        # 8) Lấy BIG ORDERS từ Binance aggTrades (value >= 100k USDT),
+    #    theo đúng khoảng thời gian của chart (startTime / endTime) và phân trang nếu >1000.
     interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
-    big_orders = [None] * min_len  # cùng độ dài với labels/prices
+    big_orders = [None] * min_len  # mỗi candle tối đa 1 giá big order (giữ trade cuối trong candle)
 
-    try:
-        resp = requests.get(
-            "https://api.binance.com/api/v3/aggTrades",
-            params={
-                "symbol": symbol,
-                "limit": 1000,  # tối đa 1000 trade gần nhất
-            },
-            timeout=5,
-        )
-        trades = resp.json()
-        if isinstance(trades, list):
-            for t in trades:
-                try:
-                    price = float(t["p"])
-                    qty = float(t["q"])
-                    ts = int(t["T"])  # ms
-                    notional = price * qty
-                    if notional < 100_000:
+    if open_times_ms:
+        start_ts = open_times_ms[0]
+        end_ts = open_times_ms[-1] + interval_ms
+
+        try:
+            base_url = "https://api.binance.com/api/v3/aggTrades"
+            from_id = None
+            safety_count = 0
+
+            while True:
+                params = {
+                    "symbol": symbol,
+                    "limit": 1000,
+                }
+                if from_id is not None:
+                    params["fromId"] = from_id
+                else:
+                    params["startTime"] = start_ts
+                    params["endTime"] = end_ts
+
+                resp = requests.get(base_url, params=params, timeout=5)
+                resp.raise_for_status()
+                batch = resp.json()
+
+                if not isinstance(batch, list) or not batch:
+                    break
+
+                for t in batch:
+                    try:
+                        price = float(t["p"])
+                        qty = float(t["q"])
+                        ts = int(t["T"])  # ms
+                        notional = price * qty
+                        if notional < 100_000:
+                            continue
+                        if ts < start_ts or ts >= end_ts:
+                            continue
+
+                        # map vào candle 4h tương ứng
+                        for i, ot in enumerate(open_times_ms):
+                            if ot <= ts < ot + interval_ms:
+                                big_orders[i] = price  # giữ trade big cuối cùng trong candle
+                                break
+                    except Exception:
                         continue
 
-                    # Gán trade vào candle 4H tương ứng
-                    for i, ot in enumerate(open_times_ms):
-                        if ot <= ts < ot + interval_ms:
-                            # Lưu giá trade lớn này (có thể overwrite, giữ cái cuối cùng trong candle)
-                            big_orders[i] = price
-                            break
-                except Exception:
-                    continue
-    except Exception as e:
-        logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
+                # nếu batch < 1000 là hết
+                if len(batch) < 1000:
+                    break
+
+                # cập nhật fromId cho batch tiếp theo
+                last = batch[-1]
+                last_ts = int(last["T"])
+                last_id = int(last["a"])
+                if last_ts >= end_ts:
+                    break
+
+                from_id = last_id + 1
+                safety_count += 1
+                if safety_count > 20:  # tránh loop vô hạn nếu API behave lạ
+                    break
+
+        except Exception as e:
+            logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
 
     # 9) Build rows_json cho JS
     rows_json = []
