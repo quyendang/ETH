@@ -1753,6 +1753,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         except Exception as e:
             logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
 
+    logging.info(f"[BIG_ORDERS] Found {sum(1 for x in big_orders if x is not None)} candles có big orders cho {symbol}")
     # 9) Build rows_json cho JS
     rows_json = []
     for i in range(min_len):
