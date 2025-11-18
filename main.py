@@ -1565,14 +1565,14 @@ def get_eid(version: str = "v9.2.0"):
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
     """
-    Dashboard theo dõi bất kỳ symbol nào (ví dụ: BTCUSDT, ETHUSDT, SOLUSDT...)
-    - Hiển thị: giá hiện tại, RSI hiện tại, Buy/Sell zone
-    - Vẽ chart Price + RSI overlay + Buy signals (theo nhiều indicator)
-    - Vẽ chart RSI + MACD
+    Dashboard theo dõi bất kỳ symbol nào (ví dụ: BTCUSDT, ETHUSDT, BNBUSDT...)
+    - Hiển thị: giá hiện tại, RSI hiện tại, % change 24h (xấp xỉ 6 cây H4)
+    - Hiển thị Buy/Sell zone hiện tại
+    - Vẽ chart Price + RSI overlay + BUY/SELL signals (JS tự tính trên client)
     """
     symbol = symbol.upper()
 
-    # 1) Lấy klines
+    # 1) Lấy klines từ Binance
     try:
         klines = _rsi_fetch_klines(symbol, TRACKER_INTERVAL, limit=200)
     except Exception as e:
@@ -1585,30 +1585,31 @@ async def symbol_dashboard(request: Request, symbol: str):
     lows: list[float] = []
 
     for k in klines:
-        open_time_ms = int(k[0])
-        dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
-        labels.append(dt.strftime("%Y-%m-%d %H:%M"))
-        opens = float(k[1])
-        high = float(k[2])
-        low = float(k[3])
-        close = float(k[4])
+        try:
+            open_time_ms = int(k[0])
+            dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
+            labels.append(dt.strftime("%Y-%m-%d %H:%M"))
 
-        highs.append(high)
-        lows.append(low)
-        closes.append(close)
+            high = float(k[2])
+            low = float(k[3])
+            close = float(k[4])
 
+            highs.append(high)
+            lows.append(low)
+            closes.append(close)
+        except Exception as e:
+            logging.warning(f"[SYMBOL DASH] Bad kline row for {symbol}: {e}")
+            continue
+
+    # Nếu không có dữ liệu → render trống, không lỗi
     if not closes:
-        # không có dữ liệu -> render page trống
         context = {
             "request": request,
             "symbol": symbol,
-            "labels": [],
-            "prices": [],
-            "rsi_values": [],
-            "macd_hist_values": [],
-            "buy_signals": [],
-            "current_price": None,
-            "current_rsi": None,
+            "rows_json": [],
+            "last_price": None,
+            "last_rsi": None,
+            "change_24h": None,
             "buy_low": None,
             "buy_high": None,
             "sell_low": None,
@@ -1625,7 +1626,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     # 3) EMA/SMA
     ema_fast = _compute_ema_series(closes, 12)
     ema_slow = _compute_ema_series(closes, 26)
-    sma_50 = _sma_series(closes, 50)
+    sma_50 = _sma_series(closes, 50)  # hiện chưa dùng nhưng có thể dùng sau
 
     # 4) Bollinger Bands
     bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
@@ -1642,15 +1643,16 @@ async def symbol_dashboard(request: Request, symbol: str):
     except Exception as e:
         logging.error(f"[SYMBOL DASH] Error computing zones for {symbol}: {e}")
 
-    # 7) Build buy_signals dựa trên nhiều indicator
+    # 7) Đồng bộ chiều dài tất cả các mảng
     n = len(closes)
-    # Đồng bộ chiều dài
     min_len = min(
         n,
+        len(labels),
         len(rsi_values),
         len(macd_hist_values),
         len(ema_fast),
         len(ema_slow),
+        len(bb_upper),
         len(bb_lower),
         len(stoch_k),
         len(williams_r),
@@ -1662,58 +1664,52 @@ async def symbol_dashboard(request: Request, symbol: str):
     macd_hist_values = macd_hist_values[-min_len:]
     ema_fast = ema_fast[-min_len:]
     ema_slow = ema_slow[-min_len:]
+    bb_upper = bb_upper[-min_len:]
     bb_lower = bb_lower[-min_len:]
     stoch_k = stoch_k[-min_len:]
     williams_r = williams_r[-min_len:]
+    highs = highs[-min_len:]
+    lows = lows[-min_len:]
 
-    buy_signals: list[float | None] = [None] * min_len
-
+    # 8) Build rows_json cho JS
+    rows_json = []
     for i in range(min_len):
-        price = closes[i]
-        rsi = rsi_values[i]
-        bbL = bb_lower[i]
-        emaF = ema_fast[i]
-        emaS = ema_slow[i]
-        stoch = stoch_k[i]
-        wr = williams_r[i]
-
-        # Booleans an toàn
-        is_rsi_oversold = rsi is not None and rsi < 40
-        is_bb_touch_low = (bbL is not None) and (price <= bbL)
-        is_stoch_low = stoch is not None and stoch < 20
-        is_wr_low = wr is not None and wr < -80
-
-        trend_ok = (
-            emaF is not None
-            and emaS is not None
-            and emaF >= emaS  # golden cross / trend ít nhất không down mạnh
+        rows_json.append(
+            {
+                "time_str": labels[i],
+                "price": closes[i],
+                "rsi_h4": rsi_values[i],
+                "macd_hist": macd_hist_values[i],
+                "ema_fast": ema_fast[i],
+                "ema_slow": ema_slow[i],
+                "bb_upper": bb_upper[i],
+                "bb_lower": bb_lower[i],
+                "stoch_k": stoch_k[i],
+                "wr": williams_r[i],
+            }
         )
 
-        # Core BUY condition:
-        # 1) RSI oversold + chạm BB dưới
-        #    OR
-        # 2) Stochastic < 20 và Williams %R < -80
-        #    + trend_ok
-        cond1 = is_rsi_oversold and is_bb_touch_low
-        cond2 = is_stoch_low and is_wr_low and trend_ok
+    # 9) Giá hiện tại, RSI hiện tại
+    last_price = closes[-1]
+    last_rsi = rsi_values[-1] if rsi_values else None
 
-        if cond1 or cond2:
-            buy_signals[i] = price
-
-    # 8) Hiện tại
-    current_price = closes[-1]
-    current_rsi = rsi_values[-1] if rsi_values else None
+    # 10) % change 24h (xấp xỉ 6 cây H4)
+    change_24h = None
+    try:
+        if len(closes) >= 7:
+            ref = closes[-7]
+            if ref != 0:
+                change_24h = (last_price - ref) / ref * 100.0
+    except Exception:
+        change_24h = None
 
     context = {
         "request": request,
         "symbol": symbol,
-        "labels": labels,
-        "prices": closes,
-        "rsi_values": rsi_values,
-        "macd_hist_values": macd_hist_values,
-        "buy_signals": buy_signals,
-        "current_price": current_price,
-        "current_rsi": current_rsi,
+        "rows_json": rows_json,
+        "last_price": last_price,
+        "last_rsi": last_rsi,
+        "change_24h": change_24h,
         "buy_low": buy_low,
         "buy_high": buy_high,
         "sell_low": sell_low,
