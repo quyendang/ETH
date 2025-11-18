@@ -154,7 +154,7 @@ INTERVAL_MS_MAP = {
     "4h": 4 * 60 * 60_000,
     "1d": 24 * 60 * 60_000,
 }
-
+BIG_ORDER_THRESHOLD = 100_000  # >100k USDT
 TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
@@ -1579,7 +1579,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     - Giá, RSI, %change 24h
     - Buy/Sell zone
     - BUY/SELL signals (RSI + BB + Stoch + Williams %R + EMA trend)
-    - Big orders > 100k$ từ Binance aggTrades (vẽ lên chart)
+    - Big orders > 100k$ (theo aggTrades) vẽ lên chart Price
     """
     symbol = symbol.upper()
 
@@ -1614,8 +1614,8 @@ async def symbol_dashboard(request: Request, symbol: str):
             logging.warning(f"[SYMBOL DASH] Bad kline row for {symbol}: {e}")
             continue
 
+    # Không có dữ liệu -> render trống
     if not closes:
-        # Không có dữ liệu
         context = {
             "request": request,
             "symbol": symbol,
@@ -1640,7 +1640,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     # 3) EMA/SMA
     ema_fast = _compute_ema_series(closes, 12)
     ema_slow = _compute_ema_series(closes, 26)
-    sma_50 = _sma_series(closes, 50)  # chưa dùng nhưng để dành
+    sma_50 = _sma_series(closes, 50)  # (chưa dùng nhưng để dành)
 
     # 4) Bollinger Bands
     bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
@@ -1687,72 +1687,68 @@ async def symbol_dashboard(request: Request, symbol: str):
     lows = lows[-min_len:]
     open_times_ms = open_times_ms_all[-min_len:]
 
-        # 8) Lấy BIG ORDERS từ Binance aggTrades (value >= 100k USDT),
-    #    theo đúng khoảng thời gian của chart (startTime / endTime) và phân trang nếu >1000.
+    # 8) Lấy BIG ORDERS từ aggTrades theo đúng khoảng thời gian của chart
     interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
-    big_orders = [None] * min_len  # mỗi candle tối đa 1 giá big order (giữ trade cuối trong candle)
+    big_orders = [None] * min_len  # mỗi candle tối đa 1 giá big order (giữ trade big cuối cùng)
 
     if open_times_ms:
         start_ts = open_times_ms[0]
         end_ts = open_times_ms[-1] + interval_ms
+        base_url = "https://api.binance.com/api/v3/aggTrades"
 
         try:
-            base_url = "https://api.binance.com/api/v3/aggTrades"
-            from_id = None
-            safety_count = 0
+            cur_start = start_ts
+            safety = 0
 
-            while True:
+            while cur_start < end_ts and safety < 100:
                 params = {
                     "symbol": symbol,
+                    "startTime": cur_start,
+                    "endTime": end_ts,
                     "limit": 1000,
                 }
-                if from_id is not None:
-                    params["fromId"] = from_id
-                else:
-                    params["startTime"] = start_ts
-                    params["endTime"] = end_ts
+                r = requests.get(base_url, params=params, timeout=10)
+                r.raise_for_status()
+                trades = r.json()
 
-                resp = requests.get(base_url, params=params, timeout=5)
-                resp.raise_for_status()
-                batch = resp.json()
-
-                if not isinstance(batch, list) or not batch:
+                if not isinstance(trades, list) or not trades:
                     break
 
-                for t in batch:
+                max_ts = cur_start
+                for t in trades:
                     try:
-                        price = float(t["p"])
-                        qty = float(t["q"])
-                        ts = int(t["T"])  # ms
-                        notional = price * qty
-                        if notional < 100_000:
-                            continue
+                        ts = int(t["T"])
                         if ts < start_ts or ts >= end_ts:
                             continue
 
-                        # map vào candle 4h tương ứng
+                        price = float(t["p"])
+                        qty = float(t["q"])
+                        notional = price * qty
+                        if notional < BIG_ORDER_THRESHOLD:
+                            continue
+
+                        # map trade này vào candle 4h tương ứng
                         for i, ot in enumerate(open_times_ms):
                             if ot <= ts < ot + interval_ms:
-                                big_orders[i] = price  # giữ trade big cuối cùng trong candle
+                                # giữ giá big order cuối cùng trong candle
+                                big_orders[i] = price
                                 break
+
+                        if ts > max_ts:
+                            max_ts = ts
                     except Exception:
                         continue
 
-                # nếu batch < 1000 là hết
-                if len(batch) < 1000:
+                # nếu ít hơn 1000 trade thì hết data
+                if len(trades) < 1000:
                     break
 
-                # cập nhật fromId cho batch tiếp theo
-                last = batch[-1]
-                last_ts = int(last["T"])
-                last_id = int(last["a"])
-                if last_ts >= end_ts:
+                # nếu đã đi tới cuối range thì dừng
+                if max_ts <= cur_start:
                     break
 
-                from_id = last_id + 1
-                safety_count += 1
-                if safety_count > 20:  # tránh loop vô hạn nếu API behave lạ
-                    break
+                cur_start = max_ts + 1
+                safety += 1
 
         except Exception as e:
             logging.error(f"[SYMBOL DASH] Error fetching aggTrades for {symbol}: {e}")
@@ -1781,7 +1777,6 @@ async def symbol_dashboard(request: Request, symbol: str):
 
     change_24h = None
     try:
-        # ~24h ≈ 6 nến 4h
         if len(closes) >= 7:
             ref = closes[-7]
             if ref != 0:
@@ -1800,7 +1795,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         "buy_high": buy_high,
         "sell_low": sell_low,
         "sell_high": sell_high,
-        "big_orders": big_orders,  # 👈 thêm vào context
+        "big_orders": big_orders,  # 👈 dùng cho chart
     }
 
     return templates.TemplateResponse("symbol_dashboard.html", context)
