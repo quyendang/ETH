@@ -379,6 +379,86 @@ def _fmt_dual(tf: str, condition: str, snapshot: Dict[str, Dict[str, float]]):
     return "\n".join(lines)
 
 
+def _compute_rsi_series(closes: list[float], period: int) -> list[float]:
+    """
+    Tính RSI series classic từ list closes.
+    Trả về list có cùng độ dài với closes (các giá trị đầu có thể bằng None -> thay bằng 50).
+    """
+    if len(closes) < period + 2:
+        return [50.0] * len(closes)
+
+    gains = []
+    losses = []
+
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+
+    # EMA cho gains/losses
+    def ema(series, p):
+        alpha = 2 / (p + 1)
+        ema_vals = []
+        prev = sum(series[:p]) / p
+        ema_vals.append(prev)
+        for v in series[p:]:
+            prev = alpha * v + (1 - alpha) * prev
+            ema_vals.append(prev)
+        return ema_vals
+
+    avg_gain = ema(gains, period)
+    avg_loss = ema(losses, period)
+
+    rsi = [50.0] * len(closes)
+    # align index
+    offset = len(closes) - len(avg_gain)
+    for i in range(len(avg_gain)):
+        if avg_loss[i] == 0:
+            rs = float('inf')
+            r = 100.0
+        else:
+            rs = avg_gain[i] / avg_loss[i]
+            r = 100 - (100 / (1 + rs))
+        rsi[offset + i] = r
+
+    return rsi
+
+
+def _compute_macd_series(
+    closes: list[float],
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[list[float], list[float], list[float]]:
+    """
+    Tính MACD series cho 1 list closes.
+    Trả về (macd_line[], signal_line[], hist[])
+    """
+    if len(closes) < slow + signal + 5:
+        n = len(closes)
+        return [0.0]*n, [0.0]*n, [0.0]*n
+
+    ema_fast = _compute_ema_series(closes, fast)
+    ema_slow = _compute_ema_series(closes, slow)
+
+    macd_series: list[float] = []
+    for ef, es in zip(ema_fast, ema_slow):
+        if ef is None or es is None:
+            macd_series.append(0.0)
+        else:
+            macd_series.append(ef - es)
+
+    signal_series = _compute_ema_series(macd_series, signal)
+    hist_series: list[float] = []
+    for m, s in zip(macd_series, signal_series):
+        if s is None:
+            hist_series.append(0.0)
+        else:
+            hist_series.append(m - s)
+
+    return macd_series, signal_series, hist_series
+
+
 def _rsi_check_once():
     global _rsi_last_state, _rsi_last_values, _rsi_last_run
     snap_all: Dict[str, Dict[str, Dict[str, float]]] = {}
