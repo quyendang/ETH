@@ -145,6 +145,7 @@ ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "4h")
 ETH_CYCLE_SIZE = float(os.getenv("ETH_CYCLE_SIZE", "40"))   # số ETH bán/mua mỗi vòng
 ETH_BASE_BALANCE = float(os.getenv("ETH_BASE_BALANCE", "138"))  # tổng ETH ban đầu
 
+TRACKER_INTERVAL = ETH_TRACKER_INTERVAL  # ví dụ "4h"
 
 # Vùng giá bán / mua xoay vòng & ngưỡng RSI (có thể chỉnh qua env)
 ETH_SELL_ZONE_LOW = float(os.getenv("ETH_SELL_ZONE_LOW", "3650"))
@@ -458,6 +459,95 @@ def _compute_macd_series(
 
     return macd_series, signal_series, hist_series
 
+def _sma_series(values: list[float], period: int) -> list[float | None]:
+    n = len(values)
+    if n < period:
+        return [None] * n
+    out: list[float | None] = [None] * (period - 1)
+    window_sum = sum(values[:period])
+    out.append(window_sum / period)
+    for i in range(period, n):
+        window_sum += values[i] - values[i - period]
+        out.append(window_sum / period)
+    return out
+
+
+def _bollinger_bands(values: list[float], period: int = 20, k: float = 2.0):
+    """
+    Trả về (middle[], upper[], lower[])
+    middle = SMA(period)
+    upper/lower = middle ± k * std
+    """
+    n = len(values)
+    middle = _sma_series(values, period)
+    upper: list[float | None] = [None] * n
+    lower: list[float | None] = [None] * n
+
+    if n < period:
+        return middle, upper, lower
+
+    import math
+
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        m = middle[i]
+        if m is None:
+            continue
+        variance = sum((v - m) ** 2 for v in window) / period
+        std = math.sqrt(variance)
+        upper[i] = m + k * std
+        lower[i] = m - k * std
+
+    return middle, upper, lower
+
+
+def _stochastic_oscillator(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> list[float | None]:
+    """
+    %K: 0..100
+    """
+    n = len(closes)
+    if n < period:
+        return [None] * n
+
+    out: list[float | None] = [None] * n
+    for i in range(period - 1, n):
+        window_high = max(highs[i - period + 1 : i + 1])
+        window_low = min(lows[i - period + 1 : i + 1])
+        if window_high == window_low:
+            out[i] = 50.0
+        else:
+            out[i] = (closes[i] - window_low) / (window_high - window_low) * 100.0
+    return out
+
+
+def _williams_r(
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    period: int = 14,
+) -> list[float | None]:
+    """
+    Williams %R: -100 .. 0
+    """
+    n = len(closes)
+    if n < period:
+        return [None] * n
+
+    out: list[float | None] = [None] * n
+    for i in range(period - 1, n):
+        window_high = max(highs[i - period + 1 : i + 1])
+        window_low = min(lows[i - period + 1 : i + 1])
+        if window_high == window_low:
+            out[i] = -50.0
+        else:
+            out[i] = -100.0 * (window_high - closes[i]) / (window_high - window_low)
+    return out
+
 
 def _rsi_check_once():
     global _rsi_last_state, _rsi_last_values, _rsi_last_run
@@ -755,91 +845,6 @@ def run_eth_tracker_once(send_notify: bool = False):
 
 
 # ===== API ENDPOINT =====
-@_rsi_router.get("/{symbol}", response_class=HTMLResponse)
-async def btc_dashboard(request: Request,  symbol: str):
-    """
-    BTC dashboard:
-    - Lấy dữ liệu trực tiếp từ Binance (klines)
-    - Tính dynamic BUY/SELL zones giống ETH
-    - Vẽ chart BTC price + RSI + MACD
-    """
-
-    # symbol = "BTCUSDT"
-    interval = ETH_TRACKER_INTERVAL  # dùng cùng khung (ví dụ "4h")
-
-    # 1) Lấy klines BTCUSDT
-    try:
-        klines = _rsi_fetch_klines(symbol, interval, limit=200)
-    except Exception as e:
-        logging.error(f"[BTC DASH] Error fetching klines: {e}")
-        klines = []
-
-    labels: list[str] = []
-    closes: list[float] = []
-
-    for k in klines:
-        # format giống ETH: "YYYY-MM-DD HH:MM"
-        open_time_ms = int(k[0])
-        dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
-        labels.append(dt.strftime("%Y-%m-%d %H:%M"))
-        closes.append(float(k[4]))
-
-    # 2) Tính RSI series cho BTC
-    rsi_values: list[float] = []
-    try:
-        rsi_values = _compute_rsi_series(closes, RSI_PERIOD)
-    except Exception as e:
-        logging.error(f"[BTC DASH] Error computing RSI: {e}")
-        # fallback: toàn 50 nếu lỗi
-        rsi_values = [50.0] * len(closes)
-
-    # Đồng bộ độ dài labels / closes / rsi
-    min_len = min(len(labels), len(closes), len(rsi_values))
-    labels = labels[-min_len:]
-    closes = closes[-min_len:]
-    rsi_values = rsi_values[-min_len:]
-
-    # 3) Tính MACD series cho BTC
-    macd_hist_values: list[float] = []
-    try:
-        _, _, macd_hist_values = _compute_macd_series(closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-    except Exception as e:
-        logging.error(f"[BTC DASH] Error computing MACD: {e}")
-        macd_hist_values = [0.0] * len(closes)
-
-    # Đồng bộ thêm lần nữa (phòng trường hợp MACD có ít điểm hơn)
-    min_len = min(len(labels), len(closes), len(rsi_values), len(macd_hist_values))
-    labels = labels[-min_len:]
-    closes = closes[-min_len:]
-    rsi_values = rsi_values[-min_len:]
-    macd_hist_values = macd_hist_values[-min_len:]
-
-    # 4) Dynamic BUY/SELL zones cho BTC (tái dùng hàm ETH)
-    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
-    try:
-        zones = _compute_eth_zones_from_range(symbol, interval, lookback=60)
-        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
-    except Exception as e:
-        logging.error(f"[BTC DASH] Error computing zones: {e}")
-
-    context = {
-        "request": request,
-        "symbol": symbol,
-        "labels": labels,
-        "prices": closes,
-        "rsi_values": rsi_values,
-        "macd_hist_values": macd_hist_values,
-        "buy_low": buy_low,
-        "buy_high": buy_high,
-        "sell_low": sell_low,
-        "sell_high": sell_high,
-        "recent_low": recent_low,
-        "recent_high": recent_high,
-    }
-
-    return templates.TemplateResponse("btc_dashboard.html", context)
-
-
 
 @_rsi_router.get("/eth", response_class=HTMLResponse)
 async def eth_dashboard(request: Request):
@@ -1556,6 +1561,166 @@ def get_eid(version: str = "v9.2.0"):
         logging.error(f"Error fetching EID values: {str(e)}")
         return {"sdkLoaderEID": "318502621", "sdkLoaderEID2": "318500618", "version": "v9.2.0"}
 
+
+@_rsi_router.get("/{symbol}", response_class=HTMLResponse)
+async def symbol_dashboard(request: Request, symbol: str):
+    """
+    Dashboard theo dõi bất kỳ symbol nào (ví dụ: BTCUSDT, ETHUSDT, SOLUSDT...)
+    - Hiển thị: giá hiện tại, RSI hiện tại, Buy/Sell zone
+    - Vẽ chart Price + RSI overlay + Buy signals (theo nhiều indicator)
+    - Vẽ chart RSI + MACD
+    """
+    symbol = symbol.upper()
+
+    # 1) Lấy klines
+    try:
+        klines = _rsi_fetch_klines(symbol, TRACKER_INTERVAL, limit=200)
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error fetching klines for {symbol}: {e}")
+        klines = []
+
+    labels: list[str] = []
+    closes: list[float] = []
+    highs: list[float] = []
+    lows: list[float] = []
+
+    for k in klines:
+        open_time_ms = int(k[0])
+        dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
+        labels.append(dt.strftime("%Y-%m-%d %H:%M"))
+        opens = float(k[1])
+        high = float(k[2])
+        low = float(k[3])
+        close = float(k[4])
+
+        highs.append(high)
+        lows.append(low)
+        closes.append(close)
+
+    if not closes:
+        # không có dữ liệu -> render page trống
+        context = {
+            "request": request,
+            "symbol": symbol,
+            "labels": [],
+            "prices": [],
+            "rsi_values": [],
+            "macd_hist_values": [],
+            "buy_signals": [],
+            "current_price": None,
+            "current_rsi": None,
+            "buy_low": None,
+            "buy_high": None,
+            "sell_low": None,
+            "sell_high": None,
+        }
+        return templates.TemplateResponse("symbol_dashboard.html", context)
+
+    # 2) Tính RSI, MACD
+    rsi_values = _compute_rsi_series(closes, RSI_PERIOD)
+    macd_line, macd_signal, macd_hist_values = _compute_macd_series(
+        closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL
+    )
+
+    # 3) EMA/SMA
+    ema_fast = _compute_ema_series(closes, 12)
+    ema_slow = _compute_ema_series(closes, 26)
+    sma_50 = _sma_series(closes, 50)
+
+    # 4) Bollinger Bands
+    bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
+
+    # 5) Stochastic & Williams %R
+    stoch_k = _stochastic_oscillator(highs, lows, closes, period=14)
+    williams_r = _williams_r(highs, lows, closes, period=14)
+
+    # 6) Dynamic zones (tái dùng logic ETH)
+    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
+    try:
+        zones = _compute_eth_zones_from_range(symbol, TRACKER_INTERVAL, lookback=60)
+        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error computing zones for {symbol}: {e}")
+
+    # 7) Build buy_signals dựa trên nhiều indicator
+    n = len(closes)
+    # Đồng bộ chiều dài
+    min_len = min(
+        n,
+        len(rsi_values),
+        len(macd_hist_values),
+        len(ema_fast),
+        len(ema_slow),
+        len(bb_lower),
+        len(stoch_k),
+        len(williams_r),
+    )
+
+    labels = labels[-min_len:]
+    closes = closes[-min_len:]
+    rsi_values = rsi_values[-min_len:]
+    macd_hist_values = macd_hist_values[-min_len:]
+    ema_fast = ema_fast[-min_len:]
+    ema_slow = ema_slow[-min_len:]
+    bb_lower = bb_lower[-min_len:]
+    stoch_k = stoch_k[-min_len:]
+    williams_r = williams_r[-min_len:]
+
+    buy_signals: list[float | None] = [None] * min_len
+
+    for i in range(min_len):
+        price = closes[i]
+        rsi = rsi_values[i]
+        bbL = bb_lower[i]
+        emaF = ema_fast[i]
+        emaS = ema_slow[i]
+        stoch = stoch_k[i]
+        wr = williams_r[i]
+
+        # Booleans an toàn
+        is_rsi_oversold = rsi is not None and rsi < 40
+        is_bb_touch_low = (bbL is not None) and (price <= bbL)
+        is_stoch_low = stoch is not None and stoch < 20
+        is_wr_low = wr is not None and wr < -80
+
+        trend_ok = (
+            emaF is not None
+            and emaS is not None
+            and emaF >= emaS  # golden cross / trend ít nhất không down mạnh
+        )
+
+        # Core BUY condition:
+        # 1) RSI oversold + chạm BB dưới
+        #    OR
+        # 2) Stochastic < 20 và Williams %R < -80
+        #    + trend_ok
+        cond1 = is_rsi_oversold and is_bb_touch_low
+        cond2 = is_stoch_low and is_wr_low and trend_ok
+
+        if cond1 or cond2:
+            buy_signals[i] = price
+
+    # 8) Hiện tại
+    current_price = closes[-1]
+    current_rsi = rsi_values[-1] if rsi_values else None
+
+    context = {
+        "request": request,
+        "symbol": symbol,
+        "labels": labels,
+        "prices": closes,
+        "rsi_values": rsi_values,
+        "macd_hist_values": macd_hist_values,
+        "buy_signals": buy_signals,
+        "current_price": current_price,
+        "current_rsi": current_rsi,
+        "buy_low": buy_low,
+        "buy_high": buy_high,
+        "sell_low": sell_low,
+        "sell_high": sell_high,
+    }
+
+    return templates.TemplateResponse("symbol_dashboard.html", context)
 
 @app.get("/{short_id}", response_class=HTMLResponse)
 async def share_lesson_by_short_id(
