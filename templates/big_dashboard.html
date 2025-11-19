@@ -250,7 +250,7 @@
           Time: {{ lb.time }}
         </div>
         {% else %}
-        <span class="stat-value">No BUY trades</span>
+          <span class="stat-value">No BUY trades</span>
         {% endif %}
 
         <div class="stat-row" style="margin-top:8px;">
@@ -265,7 +265,7 @@
           Time: {{ ls.time }}
         </div>
         {% else %}
-        <span class="stat-value">No SELL trades</span>
+          <span class="stat-value">No SELL trades</span>
         {% endif %}
 
         {% else %}
@@ -305,8 +305,14 @@
           {% for r in rows %}
           <tr>
             <td>{{ r.range_str }}</td>
-            <td>{{ r.buy | comma }}</td>
-            <td>{{ r.sell | comma }}</td>
+            <td>
+              {{ r.buy | comma }}
+              ({{ r.buy_count | comma }} orders)
+            </td>
+            <td>
+              {{ r.sell | comma }}
+              ({{ r.sell_count | comma }} orders)
+            </td>
             <td>{{ r.total | comma }}</td>
             <td>
               {% if r.dominance == "BUY" %}
