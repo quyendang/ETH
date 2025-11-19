@@ -606,7 +606,7 @@ def _eth_decide_action(
     btc_prev_macd_hist: float,
 ) -> Dict[str, str]:
     """
-    Quyết định BUY/SELL/HOLD cho ETH với:
+    Quyết định BUY/SELL/HOLD với:
     - zones: (sell_low, sell_high, buy_low, buy_high, recent_low, recent_high)
     - BTC filter để tránh bán ngược trend.
     """
@@ -621,7 +621,7 @@ def _eth_decide_action(
 
     action = "HOLD"
 
-    # ETH: MACD hist đang yếu đi? (đỉnh tròn)
+    # MACD hist đang yếu đi? (đỉnh tròn)
     macd_weakening = (
         macd_hist > 0
         and prev_macd_hist is not None
@@ -667,18 +667,19 @@ def _eth_decide_action(
         )
         action = "HOLD"
 
-    # Info thêm về MACD ETH
+    # Info thêm về MACD (generic, không còn chữ ETH)
     if abs(macd_hist) < 0.5:
-        reasons.append("MACD hist ~0 → ETH momentum weak / sideway.")
+        reasons.append("MACD hist ~0 → momentum weak / sideway.")
     elif macd_hist > 0:
-        reasons.append("MACD hist > 0 → ETH bullish momentum.")
+        reasons.append("MACD hist > 0 → bullish momentum.")
     else:
-        reasons.append("MACD hist < 0 → ETH bearish momentum.")
+        reasons.append("MACD hist < 0 → bearish momentum.")
 
     return {
         "action": action,
         "reason": " | ".join(reasons),
     }
+
 
 
 def _get_next_cycle_index() -> int:
