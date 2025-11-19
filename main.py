@@ -1343,6 +1343,183 @@ async def unsubscribe_symbol(symbol: str = Form(...)):
     return RedirectResponse(url=f"/bots/{symbol}", status_code=303)
 
 
+@_rsi_router.get("/big", response_class=HTMLResponse)
+async def big_trades_dashboard(request: Request):
+    """
+    Dashboard Big Orders:
+    - Tính tổng giá trị BUY / SELL trong 24h qua cho BTCUSDT & ETHUSDT
+    - Tính %BUY / %SELL
+    - Tính tổng giá trị BUY / SELL theo từng vùng giá:
+        + ETHUSDT: mỗi vùng 50$
+        + BTCUSDT: mỗi vùng 500$
+    """
+    symbols = ["BTCUSDT", "ETHUSDT"]
+
+    # Nếu chưa có supabase_admin thì render trống
+    if supabase_admin is None:
+        logging.warning("[BIG_TRADES] supabase_admin is None, render empty dashboard")
+        context = {
+            "request": request,
+            "has_data": False,
+            "summary": {},
+            "buckets": {},
+        }
+        return templates.TemplateResponse("big_dashboard.html", context)
+
+    now_utc = datetime.utcnow()
+    since_utc = now_utc - timedelta(hours=24)
+
+    # Lấy dữ liệu 24h gần nhất từ bảng big_trades
+    try:
+        resp = (
+            supabase_admin.table("big_trades")
+            .select("symbol, trade_time, price, qty, notional_usdt, side")
+            .gte("trade_time", since_utc.isoformat())
+            .in_("symbol", symbols)
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception as e:
+        logging.error(f"[BIG_TRADES] Error fetch big_trades: {e}")
+        rows = []
+
+    if not rows:
+        context = {
+            "request": request,
+            "has_data": False,
+            "summary": {},
+            "buckets": {},
+        }
+        return templates.TemplateResponse("big_dashboard.html", context)
+
+    # -----------------------------------------
+    # 1) Tính tổng BUY / SELL cho từng symbol
+    # -----------------------------------------
+    summary: Dict[str, Dict[str, float]] = {
+        "BTCUSDT": {"BUY": 0.0, "SELL": 0.0},
+        "ETHUSDT": {"BUY": 0.0, "SELL": 0.0},
+    }
+
+    # -----------------------------------------
+    # 2) Buckets theo vùng giá
+    #    ETH: 50$ / zone
+    #    BTC: 500$ / zone
+    # -----------------------------------------
+    # buckets[symbol][bucket_index] = {low, high, BUY, SELL}
+    buckets: Dict[str, Dict[int, Dict[str, Any]]] = {
+        "BTCUSDT": {},
+        "ETHUSDT": {},
+    }
+
+    for row in rows:
+        symbol = (row.get("symbol") or "").upper()
+        if symbol not in summary:
+            continue
+
+        side = (row.get("side") or "").upper()
+        if side not in ("BUY", "SELL"):
+            continue
+
+        try:
+            price = float(row.get("price") or 0)
+            notional = float(row.get("notional_usdt") or 0)
+        except Exception:
+            continue
+
+        # Cộng vào tổng
+        summary[symbol][side] += notional
+
+        # Xác định step
+        step = 500.0 if symbol == "BTCUSDT" else 50.0
+        bucket_index = int(price // step)
+        low = bucket_index * step
+        high = (bucket_index + 1) * step
+
+        symbol_buckets = buckets[symbol]
+        if bucket_index not in symbol_buckets:
+            symbol_buckets[bucket_index] = {
+                "low": low,
+                "high": high,
+                "BUY": 0.0,
+                "SELL": 0.0,
+            }
+
+        symbol_buckets[bucket_index][side] += notional
+
+    # -----------------------------------------
+    # 3) Tính %BUY / %SELL cho summary
+    # -----------------------------------------
+    summary_view: Dict[str, Dict[str, Any]] = {}
+    for sym in symbols:
+        buy_val = summary[sym]["BUY"]
+        sell_val = summary[sym]["SELL"]
+        total = buy_val + sell_val
+        if total > 0:
+            pct_buy = buy_val / total * 100.0
+            pct_sell = sell_val / total * 100.0
+        else:
+            pct_buy = pct_sell = 0.0
+
+        summary_view[sym] = {
+            "buy": buy_val,
+            "sell": sell_val,
+            "total": total,
+            "pct_buy": pct_buy,
+            "pct_sell": pct_sell,
+        }
+
+    # -----------------------------------------
+    # 4) Chuẩn bị dữ liệu buckets để render
+    # -----------------------------------------
+    # buckets_view[symbol] = [ {range_str, buy, sell, total, dominance}, ... ]
+    buckets_view: Dict[str, List[Dict[str, Any]]] = {}
+
+    for sym in symbols:
+        sym_buckets = buckets[sym]
+        if not sym_buckets:
+            buckets_view[sym] = []
+            continue
+
+        rows_list: List[Dict[str, Any]] = []
+        for idx, info in sym_buckets.items():
+            low = info["low"]
+            high = info["high"]
+            buy_val = info["BUY"]
+            sell_val = info["SELL"]
+            total = buy_val + sell_val
+
+            if buy_val > sell_val:
+                dominance = "BUY"
+            elif sell_val > buy_val:
+                dominance = "SELL"
+            else:
+                dominance = "BALANCED"
+
+            rows_list.append(
+                {
+                    "range_str": f"{low:.0f} – {high:.0f}",
+                    "buy": buy_val,
+                    "sell": sell_val,
+                    "total": total,
+                    "dominance": dominance,
+                }
+            )
+
+        # sort theo range giá tăng dần (theo low)
+        rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
+        buckets_view[sym] = rows_list
+
+    context = {
+        "request": request,
+        "has_data": True,
+        "summary": summary_view,
+        "buckets": buckets_view,
+        "from_time": since_utc,
+        "to_time": now_utc,
+    }
+    return templates.TemplateResponse("big_dashboard.html", context)
+
+
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
     """
