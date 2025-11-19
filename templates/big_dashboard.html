@@ -166,6 +166,12 @@
       font-size: 0.9rem;
       color: var(--text-sub);
     }
+
+    .sub-info {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -193,9 +199,10 @@
       {% set s = summary.get(sym) %}
       <div class="card">
         <div class="card-title">{{ sym }}</div>
-        <div class="card-subtitle">Tổng giá trị big trades trong 24h (USDT)</div>
+        <div class="card-subtitle">Tổng giá trị & thống kê lệnh trong 24h (USDT)</div>
 
         {% if s %}
+        <!-- Tổng giá trị BUY / SELL -->
         <div class="stat-row">
           <span class="stat-label">BUY total</span>
           <span class="stat-value">
@@ -216,6 +223,51 @@
           <span class="stat-label">TOTAL</span>
           <span class="stat-value">{{ s.total | comma }} USDT</span>
         </div>
+
+        <!-- Đếm số lệnh -->
+        <div class="stat-row" style="margin-top:6px;">
+          <span class="stat-label">BUY orders</span>
+          <span class="stat-value">{{ s.buy_count | comma }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">SELL orders</span>
+          <span class="stat-value">{{ s.sell_count | comma }}</span>
+        </div>
+
+        <!-- Largest BUY / SELL -->
+        {% set lb = s.largest_buy %}
+        {% set ls = s.largest_sell %}
+
+        <div class="stat-row" style="margin-top:8px;">
+          <span class="stat-label">Largest BUY</span>
+          {% if lb and lb.notional and lb.notional > 0 %}
+          <span class="stat-value">
+            {{ lb.notional | comma }} USDT
+          </span>
+        </div>
+        <div class="sub-info">
+          Giá: {{ lb.price }} – Qty: {{ lb.qty }}<br />
+          Time: {{ lb.time }}
+        </div>
+        {% else %}
+        <span class="stat-value">No BUY trades</span>
+        {% endif %}
+
+        <div class="stat-row" style="margin-top:8px;">
+          <span class="stat-label">Largest SELL</span>
+          {% if ls and ls.notional and ls.notional > 0 %}
+          <span class="stat-value">
+            {{ ls.notional | comma }} USDT
+          </span>
+        </div>
+        <div class="sub-info">
+          Giá: {{ ls.price }} – Qty: {{ ls.qty }}<br />
+          Time: {{ ls.time }}
+        </div>
+        {% else %}
+        <span class="stat-value">No SELL trades</span>
+        {% endif %}
+
         {% else %}
         <div class="stat-row"><span>No data</span></div>
         {% endif %}
