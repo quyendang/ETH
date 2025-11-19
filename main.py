@@ -36,6 +36,15 @@ from supabase import create_client, Client
 # ------------------------------------------------------------------
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+# thêm filter format số có dấu phẩy
+def comma_format(value):
+    try:
+        return f"{float(value):,.0f}"
+    except Exception:
+        return value
+
+templates.env.filters["comma"] = comma_format
+
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_ADS_PATH = BASE_DIR / "app-ads.txt"
