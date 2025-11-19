@@ -1361,10 +1361,11 @@ async def big_trades_dashboard(request: Request):
     - Tính tổng giá trị BUY / SELL theo từng vùng giá:
         + ETHUSDT: mỗi vùng 50$
         + BTCUSDT: mỗi vùng 500$
+    - Tìm lệnh BUY/SELL có notional lớn nhất cho từng symbol
+    - Đếm tổng số lệnh BUY/SELL
     """
     symbols = ["BTCUSDT", "ETHUSDT"]
 
-    # Nếu chưa có supabase_admin thì render trống
     if supabase_admin is None:
         logging.warning("[BIG_TRADES] supabase_admin is None, render empty dashboard")
         context = {
@@ -1372,6 +1373,8 @@ async def big_trades_dashboard(request: Request):
             "has_data": False,
             "summary": {},
             "buckets": {},
+            "from_time": None,
+            "to_time": None,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
@@ -1398,21 +1401,40 @@ async def big_trades_dashboard(request: Request):
             "has_data": False,
             "summary": {},
             "buckets": {},
+            "from_time": since_utc,
+            "to_time": now_utc,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
     # -----------------------------------------
-    # 1) Tính tổng BUY / SELL cho từng symbol
+    # 1) Tổng BUY/SELL & đếm số lệnh
     # -----------------------------------------
-    summary: Dict[str, Dict[str, float]] = {
+    summary_notional: Dict[str, Dict[str, float]] = {
         "BTCUSDT": {"BUY": 0.0, "SELL": 0.0},
         "ETHUSDT": {"BUY": 0.0, "SELL": 0.0},
     }
+    summary_counts: Dict[str, Dict[str, int]] = {
+        "BTCUSDT": {"BUY": 0, "SELL": 0},
+        "ETHUSDT": {"BUY": 0, "SELL": 0},
+    }
 
     # -----------------------------------------
-    # 2) Buckets theo vùng giá
-    #    ETH: 50$ / zone
-    #    BTC: 500$ / zone
+    # 2) Largest BUY/SELL
+    # -----------------------------------------
+    # largest_trades[symbol][side] = {notional, price, qty, time}
+    largest_trades: Dict[str, Dict[str, Dict[str, Any]]] = {
+        "BTCUSDT": {
+            "BUY": {"notional": 0.0, "price": None, "qty": None, "time": None},
+            "SELL": {"notional": 0.0, "price": None, "qty": None, "time": None},
+        },
+        "ETHUSDT": {
+            "BUY": {"notional": 0.0, "price": None, "qty": None, "time": None},
+            "SELL": {"notional": 0.0, "price": None, "qty": None, "time": None},
+        },
+    }
+
+    # -----------------------------------------
+    # 3) Buckets theo vùng giá
     # -----------------------------------------
     # buckets[symbol][bucket_index] = {low, high, BUY, SELL}
     buckets: Dict[str, Dict[int, Dict[str, Any]]] = {
@@ -1422,7 +1444,7 @@ async def big_trades_dashboard(request: Request):
 
     for row in rows:
         symbol = (row.get("symbol") or "").upper()
-        if symbol not in summary:
+        if symbol not in summary_notional:
             continue
 
         side = (row.get("side") or "").upper()
@@ -1432,13 +1454,27 @@ async def big_trades_dashboard(request: Request):
         try:
             price = float(row.get("price") or 0)
             notional = float(row.get("notional_usdt") or 0)
+            qty = float(row.get("qty") or 0)
+            trade_time = row.get("trade_time")
         except Exception:
             continue
 
-        # Cộng vào tổng
-        summary[symbol][side] += notional
+        # Tổng notional
+        summary_notional[symbol][side] += notional
+        # Đếm số lệnh
+        summary_counts[symbol][side] += 1
 
-        # Xác định step
+        # Largest trade theo side
+        cur_largest = largest_trades[symbol][side]
+        if notional > cur_largest["notional"]:
+            largest_trades[symbol][side] = {
+                "notional": notional,
+                "price": price,
+                "qty": qty,
+                "time": trade_time,
+            }
+
+        # Buckets theo vùng giá
         step = 500.0 if symbol == "BTCUSDT" else 50.0
         bucket_index = int(price // step)
         low = bucket_index * step
@@ -1456,13 +1492,14 @@ async def big_trades_dashboard(request: Request):
         symbol_buckets[bucket_index][side] += notional
 
     # -----------------------------------------
-    # 3) Tính %BUY / %SELL cho summary
+    # 4) Summary view + %BUY/%SELL + largest
     # -----------------------------------------
     summary_view: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
-        buy_val = summary[sym]["BUY"]
-        sell_val = summary[sym]["SELL"]
+        buy_val = summary_notional[sym]["BUY"]
+        sell_val = summary_notional[sym]["SELL"]
         total = buy_val + sell_val
+
         if total > 0:
             pct_buy = buy_val / total * 100.0
             pct_sell = sell_val / total * 100.0
@@ -1475,12 +1512,15 @@ async def big_trades_dashboard(request: Request):
             "total": total,
             "pct_buy": pct_buy,
             "pct_sell": pct_sell,
+            "buy_count": summary_counts[sym]["BUY"],
+            "sell_count": summary_counts[sym]["SELL"],
+            "largest_buy": largest_trades[sym]["BUY"],
+            "largest_sell": largest_trades[sym]["SELL"],
         }
 
     # -----------------------------------------
-    # 4) Chuẩn bị dữ liệu buckets để render
+    # 5) Buckets view
     # -----------------------------------------
-    # buckets_view[symbol] = [ {range_str, buy, sell, total, dominance}, ... ]
     buckets_view: Dict[str, List[Dict[str, Any]]] = {}
 
     for sym in symbols:
@@ -1514,7 +1554,6 @@ async def big_trades_dashboard(request: Request):
                 }
             )
 
-        # sort theo range giá tăng dần (theo low)
         rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
         buckets_view[sym] = rows_list
 
@@ -1527,6 +1566,7 @@ async def big_trades_dashboard(request: Request):
         "to_time": now_utc,
     }
     return templates.TemplateResponse("big_dashboard.html", context)
+
 
 
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
