@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Big Orders Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-sub: #64748b;
+      --accent: #2563eb;
+      --green: #22c55e;
+      --red: #ef4444;
+      --muted: #e5e7eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    .header {
+      margin-bottom: 16px;
+    }
+
+    .header-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 4px;
+    }
+
+    .header-sub {
+      font-size: 0.9rem;
+      color: var(--text-sub);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin: 16px 0 24px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
+    }
+
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      margin-bottom: 6px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      margin-top: 2px;
+    }
+
+    .stat-label { color: var(--text-sub); }
+    .stat-value { font-weight: 600; }
+
+    .badge-buy {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(34,197,94,.08);
+      color: var(--green);
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .badge-sell {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(239,68,68,.08);
+      color: var(--red);
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 16px 16px 20px;
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+      margin-bottom: 18px;
+    }
+
+    .panel-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--text-main);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .panel-title span.sub {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      font-weight: 400;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    thead {
+      background: #f9fafb;
+    }
+
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    .dom-buy { color: var(--green); font-weight: 600; }
+    .dom-sell { color: var(--red); font-weight: 600; }
+    .dom-bal { color: var(--text-sub); }
+
+    .no-data {
+      margin-top: 24px;
+      font-size: 0.9rem;
+      color: var(--text-sub);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-title">Big Orders Dashboard</div>
+      <div class="header-sub">
+        Tổng hợp big trades BTCUSDT & ETHUSDT trong 24h qua (dữ liệu từ table <code>big_trades</code>).
+        {% if from_time and to_time %}
+        <br />
+        <small>Window: {{ from_time }} → {{ to_time }} (UTC)</small>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if not has_data %}
+      <div class="no-data">
+        Chưa có dữ liệu big_trades trong 24h qua hoặc không kết nối được Supabase.
+      </div>
+    {% else %}
+
+    <!-- SUMMARY CARDS -->
+    <section class="cards">
+      {% for sym in ["BTCUSDT", "ETHUSDT"] %}
+      {% set s = summary.get(sym) %}
+      <div class="card">
+        <div class="card-title">{{ sym }}</div>
+        <div class="card-subtitle">Tổng giá trị big trades trong 24h (USDT)</div>
+
+        {% if s %}
+        <div class="stat-row">
+          <span class="stat-label">BUY total</span>
+          <span class="stat-value">
+            {{ "%.0f"|format(s.buy) }} USDT
+            <span class="badge-buy">{{ "%.1f"|format(s.pct_buy) }}%</span>
+          </span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">SELL total</span>
+          <span class="stat-value">
+            {{ "%.0f"|format(s.sell) }} USDT
+            <span class="badge-sell">{{ "%.1f"|format(s.pct_sell) }}%</span>
+          </span>
+        </div>
+        <div class="stat-row" style="margin-top:6px;">
+          <span class="stat-label">TOTAL</span>
+          <span class="stat-value">{{ "%.0f"|format(s.total) }} USDT</span>
+        </div>
+        {% else %}
+        <div class="stat-row">
+          <span class="stat-label">No data</span>
+          <span class="stat-value">–</span>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <!-- BUCKET TABLES -->
+    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
+    {% set rows = buckets.get(sym) %}
+    <section class="panel">
+      <div class="panel-title">
+        <div>{{ sym }} – Big trades theo vùng giá</div>
+        <span class="sub">
+          {% if sym == "BTCUSDT" %}
+            Mỗi vùng 500 USDT
+          {% else %}
+            Mỗi vùng 50 USDT
+          {% endif %}
+        </span>
+      </div>
+
+      {% if rows and rows|length > 0 %}
+      <table>
+        <thead>
+          <tr>
+            <th>Vùng giá</th>
+            <th>BUY (USDT)</th>
+            <th>SELL (USDT)</th>
+            <th>TOTAL (USDT)</th>
+            <th>Dominance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.range_str }}</td>
+            <td>{{ "%.0f"|format(r.buy) }}</td>
+            <td>{{ "%.0f"|format(r.sell) }}</td>
+            <td>{{ "%.0f"|format(r.total) }}</td>
+            <td>
+              {% if r.dominance == "BUY" %}
+                <span class="dom-buy">BUY</span>
+              {% elif r.dominance == "SELL" %}
+                <span class="dom-sell">SELL</span>
+              {% else %}
+                <span class="dom-bal">BALANCED</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="no-data">
+        Không có big trades nào cho {{ sym }} trong 24h qua.
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    {% endif %}
+  </div>
+</body>
+</html>
