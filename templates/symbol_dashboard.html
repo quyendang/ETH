@@ -171,7 +171,15 @@
 
     .legend-buy  { background: rgba(34, 197, 94, 0.12); }
     .legend-sell { background: rgba(239, 68, 68, 0.12); }
-    .legend-big  { background: rgba(168, 85, 247, 0.18); }
+
+    .sub-btn {
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 999px;
+    }
 
     @media (max-width: 640px) {
       .header { align-items: flex-start; }
@@ -192,8 +200,30 @@
           <span id="lastStateBadge" class="badge-state state-hold">HOLD</span>
         </div>
         <div class="header-sub">
-          Auto-tracking Price, RSI, zones, Big Orders & BUY/SELL signals (4H data)
+          Auto-tracking Price, RSI, zones & BUY/SELL signals (4H data)
+          <br />
+          <small>
+            Server tracker:
+            <strong>{{ tracker_action }}</strong>
+            {% if tracker_reason %}
+              – {{ tracker_reason }}
+            {% endif %}
+          </small>
         </div>
+      </div>
+
+      <div>
+        {% if is_subscribed %}
+        <form method="post" action="/bots/unsubscribe">
+          <input type="hidden" name="symbol" value="{{ symbol }}">
+          <button type="submit" class="sub-btn state-sell">UNSUBSCRIBE</button>
+        </form>
+        {% else %}
+        <form method="post" action="/bots/subscribe">
+          <input type="hidden" name="symbol" value="{{ symbol }}">
+          <button type="submit" class="sub-btn state-buy">SUBSCRIBE</button>
+        </form>
+        {% endif %}
       </div>
     </header>
 
@@ -250,13 +280,12 @@
     <section class="panel">
       <div class="panel-title">
         <div>
-          Giá {{ symbol }} (Price + RSI + Buy/Sell + Big Orders)
+          Giá {{ symbol }} (Price + RSI + Buy/Sell signals)
           <span class="sub">4H candles</span>
         </div>
         <div class="zone-legend">
           <span class="legend-box legend-buy"></span> Buy zone
           <span class="legend-box legend-sell"></span> Sell zone
-          <span class="legend-box legend-big"></span> Big orders &gt; 100k$
         </div>
       </div>
       <canvas id="priceRsiChart" height="260"></canvas>
@@ -284,9 +313,6 @@
     const buyHigh = {{ buy_high if buy_high is not none else 'null' }};
     const sellLow = {{ sell_low if sell_low is not none else 'null' }};
     const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
-
-    // BIG ORDERS: mảng cùng độ dài labels, giá trade big hoặc null
-    const bigOrdersRaw = {{ big_orders | tojson }};
 
     // ==== 2. Plugin vẽ BUY/SELL ZONES ====
     const priceZonesPlugin = {
@@ -326,7 +352,7 @@
       }
     };
 
-    // ==== 3. Tính BUY / SELL signals & trạng thái cuối ====
+    // ==== 3. Tính BUY / SELL signals & trạng thái cuối (client-side) ====
     function computeSignals(
       prices, rsiArr, bbU, bbL, emaF, emaS, stochArr, wrArr,
       buyLow, buyHigh, sellLow, sellHigh
@@ -334,7 +360,6 @@
       const n = prices.length;
       const buySignals  = new Array(n).fill(null);
       const sellSignals = new Array(n).fill(null);
-
       let lastState = "HOLD";
 
       for (let i = 0; i < n; i++) {
@@ -397,7 +422,7 @@
       buyLow, buyHigh, sellLow, sellHigh
     );
 
-    // ==== 4. Badge trạng thái ====
+    // ==== 4. Badge trạng thái cuối ====
     const stateEl = document.getElementById("lastStateBadge");
     if (stateEl) {
       stateEl.textContent = lastState;
@@ -407,7 +432,7 @@
       else stateEl.classList.add("state-hold");
     }
 
-    // ==== 5. Build points cho scatter ====
+    // ==== 5. Build points cho scatter BUY/SELL ====
     function buildSignalPoints(signals) {
       const pts = [];
       for (let i = 0; i < signals.length; i++) {
@@ -418,13 +443,12 @@
       return pts;
     }
 
-    const buyPoints      = buildSignalPoints(buySignals);
-    const sellPoints     = buildSignalPoints(sellSignals);
-    const bigOrderPoints = buildSignalPoints(bigOrdersRaw);
+    const buyPoints  = buildSignalPoints(buySignals);
+    const sellPoints = buildSignalPoints(sellSignals);
 
     Chart.register(priceZonesPlugin);
 
-    // ==== 6. Chart Price + RSI + BUY/SELL + Big Orders ====
+    // ==== 6. Vẽ chart Price + RSI + BUY/SELL ====
     const ctxPriceRsi = document.getElementById("priceRsiChart").getContext("2d");
 
     const priceRsiChart = new Chart(ctxPriceRsi, {
@@ -471,16 +495,6 @@
             pointStyle: "triangle",
             pointRotation: 180,
             pointRadius: 6,
-            pointHoverRadius: 7
-          },
-          {
-            type: "scatter",
-            label: "Big Orders > 100k$",
-            data: bigOrderPoints,
-            yAxisID: "y",
-            borderColor: "rgba(168, 85, 247, 1)",
-            backgroundColor: "rgba(168, 85, 247, 1)",
-            pointRadius: 5,
             pointHoverRadius: 7
           }
         ]
