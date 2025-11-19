@@ -26,7 +26,7 @@ from fastapi import (
     Depends,
     APIRouter,
 )
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from supabase import create_client, Client
