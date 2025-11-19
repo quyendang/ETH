@@ -797,12 +797,10 @@ def run_symbol_tracker_once(symbol: str, send_notify: bool = False) -> Dict[str,
     # 7) Notify Pushover nếu cần và action != HOLD
     if send_notify and action != "HOLD":
         try:
-            title = f"{symbol} Tracker: {action}"
+            title = f"[{action}] {symbol} 💰"
             msg_lines = [
-                f"Symbol: {symbol}",
-                f"Action: {action}",
-                f"Reason: {reason}",
                 f"Price: {price}",
+                f"Reason: {reason}",
                 f"RSI H4: {rsi_h4:.2f}",
                 f"MACD: {macd_line:.4f} | Signal: {macd_signal:.4f} | Hist: {macd_hist:.4f}",
                 f"BTC RSI H4: {btc_rsi_h4:.1f}, BTC hist: {btc_macd_hist:.4f}",
