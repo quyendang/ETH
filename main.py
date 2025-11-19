@@ -704,16 +704,34 @@ def _get_open_cycle():
     return data[0] if data else None
 
     
-# ===== ETH TRACKER CORE =====
 
-def run_eth_tracker_once(send_notify: bool = False):
-    symbol = ETH_TRACKER_SYMBOL
-    interval = ETH_TRACKER_INTERVAL
+# ===== API ENDPOINT =====
 
-    # 1) ETH Price + RSI H4
+def run_symbol_tracker_once(symbol: str, send_notify: bool = False) -> Dict[str, Any]:
+    """
+    Tracker chung cho mọi symbol:
+    - Nếu symbol == ETH_TRACKER_SYMBOL:
+        dùng run_eth_tracker_once (giữ nguyên logic cũ, vẫn ghi ethdata, eth_cycles,...).
+    - Symbol khác:
+        + Lấy price + RSI H4 từ Binance
+        + MACD + prev hist
+        + Dynamic zone (dùng logic _compute_eth_zones_from_range)
+        + BTC filter (BTC RSI + MACD hist + prev hist)
+        + Quyết định action bằng _eth_decide_action
+        + Không ghi DB, chỉ trả payload (+ optional Pushover).
+    """
+    symbol = symbol.upper()
+
+    # # ETH: dùng luôn logic cũ để không phá eth_dashboard, eth_cycles...
+    # if symbol == ETH_TRACKER_SYMBOL:
+    #     return run_eth_tracker_once(send_notify=send_notify)
+
+    interval = TRACKER_INTERVAL
+
+    # 1) Symbol Price + RSI H4
     price, rsi_h4 = _rsi_latest(symbol, interval, RSI_PERIOD)
 
-    # 2) ETH MACD + prev hist
+    # 2) Symbol MACD + prev hist
     macd_line, macd_signal, macd_hist, prev_macd_hist = _macd_latest_with_prev(
         symbol,
         interval,
@@ -723,20 +741,16 @@ def run_eth_tracker_once(send_notify: bool = False):
     btc_price, btc_rsi_h4 = _rsi_latest("BTCUSDT", interval, RSI_PERIOD)
 
     # 4) BTC MACD + prev hist
-    btc_macd_line, btc_macd_signal, btc_macd_hist, btc_prev_macd_hist = _macd_latest_with_prev(
+    _, _, btc_macd_hist, btc_prev_macd_hist = _macd_latest_with_prev(
         "BTCUSDT",
         interval,
     )
 
-    # 5) Dynamic zones ETH
-    zones = _compute_eth_zones_from_range(
-        symbol,
-        interval,
-        lookback=60,
-    )
+    # 5) Dynamic zones cho chính symbol (re-use logic ETH)
+    zones = _compute_eth_zones_from_range(symbol, interval, lookback=60)
     sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
 
-    # 6) Quyết định action có filter BTC
+    # 6) Quyết định action (BUY/SELL/HOLD) với BTC filter
     decision = _eth_decide_action(
         price=price,
         rsi_h4=rsi_h4,
@@ -750,46 +764,9 @@ def run_eth_tracker_once(send_notify: bool = False):
     action = decision["action"]
     reason = decision["reason"]
 
-
-    # ==== ETH CYCLE TRACKING ====
-    try:
-        if action == "SELL":
-            # Mở 1 cycle mới
-            cycle_index = _get_next_cycle_index()
-            supabase_admin.table("eth_cycles").insert(
-                {
-                    "cycle_index": cycle_index,
-                    "sell_price": price,
-                    "amount_eth": ETH_CYCLE_SIZE,
-                }
-            ).execute()
-
-        elif action == "BUY":
-            # Đóng cycle gần nhất (nếu có)
-            open_cycle = _get_open_cycle()
-            if open_cycle:
-                sell_price = float(open_cycle["sell_price"])
-                buy_price = price
-                amount = float(open_cycle["amount_eth"])
-
-                delta_usdt = (sell_price - buy_price) * amount
-                # Nếu sell cao hơn buy → delta_usdt > 0 → có lợi nhuận
-                delta_eth = delta_usdt / buy_price if buy_price != 0 else 0.0
-
-                supabase_admin.table("eth_cycles").update(
-                    {
-                        "buy_price": buy_price,
-                        "delta_usdt": delta_usdt,
-                        "delta_eth": delta_eth,
-                    }
-                ).eq("id", open_cycle["id"]).execute()
-    except Exception as e:
-        logging.error(f"[ETHCYCLES] Error updating cycles: {e}")
-
-
     now_utc = datetime.utcnow().isoformat() + "Z"
 
-    payload = {
+    payload: Dict[str, Any] = {
         "symbol": symbol,
         "timeframe": interval,
         "now_utc": now_utc,
@@ -812,326 +789,84 @@ def run_eth_tracker_once(send_notify: bool = False):
             "price": btc_price,
             "rsi_h4": btc_rsi_h4,
             "macd_hist": btc_macd_hist,
+            "prev_macd_hist": btc_prev_macd_hist,
         },
     }
 
-    # 7) Lưu ethdata như cũ
-    try:
-        supabase_admin.table("ethdata").insert(
-            {
-                "symbol": symbol,
-                "timeframe": interval,
-                "price": price,
-                "rsi_h4": rsi_h4,
-                "macd": macd_line,
-                "macd_signal": macd_signal,
-                "macd_hist": macd_hist,
-                "action": action,
-                "reason": reason,
-            }
-        ).execute()
-    except Exception as e:
-        logging.error(f"[ETHTRACKER] Error inserting into Supabase: {e}")
-
-    # 8) Gửi Pushover nếu cần
+    # 7) Notify Pushover nếu cần và action != HOLD
     if send_notify and action != "HOLD":
         try:
-            title = f"ETH Tracker: {action}"
+            title = f"{symbol} Tracker: {action}"
             msg_lines = [
+                f"Symbol: {symbol}",
                 f"Action: {action}",
                 f"Reason: {reason}",
                 f"Price: {price}",
-                f"RSI H4: {rsi_h4}",
+                f"RSI H4: {rsi_h4:.2f}",
                 f"MACD: {macd_line:.4f} | Signal: {macd_signal:.4f} | Hist: {macd_hist:.4f}",
                 f"BTC RSI H4: {btc_rsi_h4:.1f}, BTC hist: {btc_macd_hist:.4f}",
                 f"Time (UTC): {now_utc}",
             ]
             _pushover_notify(title, "\n".join(msg_lines))
         except Exception as e:
-            logging.error(f"[ETHTRACKER] Error sending Pushover: {e}")
+            logging.error(f"[SYMBOL_TRACKER_NOTIFY] Error: {e}")
 
     return payload
 
 
-
-# ===== API ENDPOINT =====
-
-@_rsi_router.get("/eth", response_class=HTMLResponse)
-async def eth_dashboard(request: Request):
+def symbols_tracker_job():
     """
-    ETH dashboard:
-    - Lấy tối đa 1000 rows mới nhất từ ethdata
-    - Tự động dọn các rows cũ hơn (chỉ giữ 1000 gần nhất)
-    - Render chart + cycles
+    Job chạy mỗi 10 phút:
+    - Lấy danh sách symbol is_active = true trong bot_subscriptions
+    - Mỗi symbol → run_symbol_tracker_once(send_notify=True)
+    - ETHUSDT sẽ dùng run_eth_tracker_once (giữ nguyên ethdata, eth_cycles,...)
     """
-
-    # ===== 1) LẤY 1000 ROW MỚI NHẤT TỪ ETHDATA =====
     try:
         resp = (
-            supabase_admin.table("ethdata")
-            .select("*")
-            .order("created_at", desc=True)  # mới nhất trước
-            .limit(1000)
+            supabase_admin.table("bot_subscriptions")
+            .select("symbol")
+            .eq("is_active", True)
             .execute()
         )
-        latest_rows_desc = resp.data or []
-    except Exception as e:
-        logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
-        latest_rows_desc = []
-
-    # ===== 2) DỌN RÁC: CHỈ GIỮ LẠI 1000 ROW GẦN NHẤT =====
-    # latest_rows_desc: [newest, ..., oldest_of_1000]
-    if latest_rows_desc:
-        oldest_keep_created_at = latest_rows_desc[-1].get("created_at")
-        if oldest_keep_created_at:
-            try:
-                # Xóa tất cả rows có created_at < row cũ nhất trong 1000 rows đang giữ
-                (
-                    supabase_admin.table("ethdata")
-                    .delete()
-                    .lt("created_at", oldest_keep_created_at)
-                    .execute()
-                )
-            except Exception as e:
-                logging.error(f"[ETHDATA] Error cleaning old rows: {e}")
-
-    # Đảo ngược lại cho chart: oldest -> newest
-    rows = list(reversed(latest_rows_desc))
-
-    # ===== 3) BUILD DATA CHO CHART NHƯ CŨ =====
-    labels = []
-    prices = []
-    rsi_values = []
-    macd_hist_values = []
-    buy_points = []
-    sell_points = []
-
-    for r in rows:
-        ts_raw = r.get("created_at")
-
-        # format "YYYY-MM-DD HH:MM"
-        ts_str = None
-        try:
-            if isinstance(ts_raw, str):
-                iso_str = ts_raw.replace("Z", "+00:00")
-                dt = datetime.fromisoformat(iso_str)
-                ts_str = dt.strftime("%Y-%m-%d %H:%M")
-            elif isinstance(ts_raw, datetime):
-                ts_str = ts_raw.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            ts_str = str(ts_raw)[:16]
-
-        labels.append(ts_str)
-
-        price = float(r.get("price", 0))
-        rsi = float(r.get("rsi_h4", 0))
-        macd_hist = float(r.get("macd_hist", 0))
-        action = r.get("action", "HOLD")
-
-        prices.append(price)
-        rsi_values.append(rsi)
-        macd_hist_values.append(macd_hist)
-
-        if action == "BUY":
-            buy_points.append(price)
-            sell_points.append(None)
-        elif action == "SELL":
-            buy_points.append(None)
-            sell_points.append(price)
-        else:
-            buy_points.append(None)
-            sell_points.append(None)
-
-    # ===== 4) ZONES + CYCLES + RENDER (phần này bạn giữ như hiện tại) =====
-    try:
-        zones = _compute_eth_zones_from_range(
-            ETH_TRACKER_SYMBOL,
-            ETH_TRACKER_INTERVAL,
-            lookback=60,
-        )
-        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
-    except Exception as e:
-        logging.error(f"[ETHDATA] Error computing zones: {e}")
-        sell_low = sell_high = buy_low = buy_high = recent_low = recent_high = None
-
-    # Lấy cycles, tính base_eth, delta_eth_total, final_eth ... như code bạn đang có
-    cycles_resp = (
-        supabase_admin.table("eth_cycles")
-        .select("*")
-        .order("cycle_index", desc=False)
-        .execute()
-    )
-    cycles = cycles_resp.data or []
-
-    total_delta_eth = sum(
-        float(c["delta_eth"])
-        for c in cycles
-        if c.get("delta_eth") is not None
-    )
-    final_eth = ETH_BASE_BALANCE + total_delta_eth
-
-    context = {
-        "request": request,
-        "labels": labels,
-        "prices": prices,
-        "rsi_values": rsi_values,
-        "macd_hist_values": macd_hist_values,
-        "buy_points": buy_points,
-        "sell_points": sell_points,
-        "buy_low": buy_low,
-        "buy_high": buy_high,
-        "sell_low": sell_low,
-        "sell_high": sell_high,
-        "recent_low": recent_low,
-        "recent_high": recent_high,
-        "cycles": cycles,
-        "base_eth": ETH_BASE_BALANCE,
-        "delta_eth_total": total_delta_eth,
-        "final_eth": final_eth,
-    }
-
-    return templates.TemplateResponse("eth_dashboard.html", context)
-
-
-
-@_rsi_router.get("/ethtracker")
-def eth_tracker():
-    """
-    Endpoint HTTP để xem nhanh dữ liệu tracker hiện tại.
-    Không gửi Pushover, chỉ trả JSON.
-    """
-    return run_eth_tracker_once(send_notify=False)
-
-@_rsi_router.get("/ethdata", response_class=HTMLResponse)
-async def bots_ethdata(request: Request):
-    """
-    Render chart ETH tracker từ dữ liệu bảng ethdata + vùng BUY/SELL dynamic.
-    """
-    try:
-        # Lấy tối đa 500 record gần nhất, sắp xếp theo created_at tăng dần
-        resp = supabase_admin.table("ethdata") \
-            .select("*") \
-            .order("created_at", desc=False) \
-            .limit(500) \
-            .execute()
         rows = resp.data or []
     except Exception as e:
-        logging.error(f"[ETHDATA] Error fetching from Supabase: {e}")
-        rows = []
+        logging.error(f"[SYMBOL_TRACKER_JOB] Error fetch subscriptions: {e}")
+        return
 
-    labels = []
-    prices = []
-    rsi_values = []
-    macd_hist_values = []
-    buy_points = []
-    sell_points = []
-
-    for r in rows:
-        ts = r.get("created_at")
-        labels.append(ts)
-
-        price = float(r.get("price", 0))
-        rsi = float(r.get("rsi_h4", 0))
-        macd_hist = float(r.get("macd_hist", 0))
-        action = r.get("action", "HOLD")
-
-        prices.append(price)
-        rsi_values.append(rsi)
-        macd_hist_values.append(macd_hist)
-
-        if action == "BUY":
-            buy_points.append(price)
-            sell_points.append(None)
-        elif action == "SELL":
-            buy_points.append(None)
-            sell_points.append(price)
-        else:
-            buy_points.append(None)
-            sell_points.append(None)
-
-    # 🔥 TÍNH VÙNG GIÁ ĐỘNG ĐỂ VẼ ZONE
-    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
-    try:
-        zones = _compute_eth_zones_from_range(
-            ETH_TRACKER_SYMBOL,
-            ETH_TRACKER_INTERVAL,
-            lookback=60,  # 60 nến H4 ~ 10 ngày
-        )
-        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
-    except Exception as e:
-        logging.error(f"[ETHDATA] Error computing zones: {e}")
-
-    context = {
-        "request": request,
-        "labels": labels,
-        "prices": prices,
-        "rsi_values": rsi_values,
-        "macd_hist_values": macd_hist_values,
-        "buy_points": buy_points,
-        "sell_points": sell_points,
-        # Zones để vẽ nền:
-        "buy_low": buy_low,
-        "buy_high": buy_high,
-        "sell_low": sell_low,
-        "sell_high": sell_high,
-        "recent_low": recent_low,
-        "recent_high": recent_high,
-    }
-    return templates.TemplateResponse("chart.html", context)
+    for row in rows:
+        symbol = (row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        try:
+            payload = run_symbol_tracker_once(symbol, send_notify=True)
+            logging.info(
+                f"[SYMBOL_TRACKER_JOB] {symbol}: action={payload['action']} price={payload['price']}"
+            )
+        except Exception as e:
+            logging.error(f"[SYMBOL_TRACKER_JOB] {symbol}: error {e}")
 
 
-@_rsi_router.get("/rsi-status", response_class=JSONResponse)
-def rsi_status():
-    data = {
-        "symbols": RSI_SYMBOLS,
-        "period": RSI_PERIOD,
-        "timeframes": RSI_TIMEFRAMES,
-        "last_run_utc": datetime.utcfromtimestamp(_rsi_last_run).strftime("%Y-%m-%d %H:%M:%S") if _rsi_last_run else None,
-        "values": _rsi_last_values,
-        "state": _rsi_last_state,
-        "check_every_minutes": RSI_CHECK_MINUTES,
-    }
-    # Tạo JSON pretty print
-    pretty = json.dumps(data, indent=4, ensure_ascii=False)
-    return JSONResponse(content=json.loads(pretty))
 
-def eth_tracker_job():
-    """
-    Job chạy mỗi 30 phút:
-    - Gọi run_eth_tracker_once(send_notify=True)
-    - Lưu DB + gửi pushover nếu action != HOLD
-    """
-    try:
-        payload = run_eth_tracker_once(send_notify=True)
-        logging.info(f"[ETHTRACKER] Job run, action={payload['action']}, price={payload['price']}")
-    except Exception as e:
-        logging.error(f"[ETHTRACKER] Job error: {e}")
+
         
 def init_inline_rsi_dual(app_: FastAPI, scheduler: Optional[BackgroundScheduler] = None):
     app_.include_router(_rsi_router, prefix="/bots", tags=["bots"])
     if scheduler is not None:
         try:
             scheduler.add_job(
-                _rsi_check_once,
+                symbols_tracker_job,
                 "interval",
-                minutes=RSI_CHECK_MINUTES,
-                id="rsi_check_dual",
+                minutes=10,
+                id="symbols_tracker_job",
                 replace_existing=True,
                 next_run_time=datetime.utcnow(),
             )
-            scheduler.add_job(
-                eth_tracker_job,
-                "interval",
-                minutes=10,
-                id="eth_tracker_job",
-                replace_existing=True,
-            )
         except Exception:
             scheduler.add_job(
-                _rsi_check_once,
+                symbols_tracker_job,
                 "interval",
-                minutes=RSI_CHECK_MINUTES,
-                id="rsi_check_dual",
+                minutes=10,
+                id="symbols_tracker_job",
                 replace_existing=True,
             )
     else:
@@ -1572,14 +1307,52 @@ def get_eid(version: str = "v9.2.0"):
         return {"sdkLoaderEID": "318502621", "sdkLoaderEID2": "318500618", "version": "v9.2.0"}
 
 
+@_rsi_router.post("/subscribe")
+async def subscribe_symbol(symbol: str = Form(...)):
+    """
+    SUBSCRIBE 1 symbol vào danh sách theo dõi.
+    """
+    symbol = symbol.upper()
+    try:
+        # upsert theo symbol
+        supabase_admin.table("bot_subscriptions") \
+            .upsert(
+                {"symbol": symbol, "is_active": True},
+                on_conflict="symbol",
+            ) \
+            .execute()
+    except Exception as e:
+        logging.error(f"[SUBSCRIBE] Error subscribe {symbol}: {e}")
+
+    return RedirectResponse(url=f"/bots/{symbol}", status_code=303)
+
+
+@_rsi_router.post("/unsubscribe")
+async def unsubscribe_symbol(symbol: str = Form(...)):
+    """
+    UNSUBSCRIBE 1 symbol khỏi danh sách theo dõi.
+    """
+    symbol = symbol.upper()
+    try:
+        supabase_admin.table("bot_subscriptions") \
+            .update({"is_active": False}) \
+            .eq("symbol", symbol) \
+            .execute()
+    except Exception as e:
+        logging.error(f"[UNSUBSCRIBE] Error unsubscribe {symbol}: {e}")
+
+    return RedirectResponse(url=f"/bots/{symbol}", status_code=303)
+
+
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
     """
-    Dashboard theo dõi bất kỳ symbol nào (BTCUSDT, ETHUSDT, BNBUSDT...)
+    Dashboard theo dõi bất kỳ symbol nào (BTCUSDT, ETHUSDT, BNBUSDT...):
     - Giá, RSI, %change 24h
-    - Buy/Sell zone
-    - BUY/SELL signals (RSI + BB + Stoch + Williams %R + EMA trend)
-    - Big orders > 100k$ (theo aggTrades) vẽ lên chart Price
+    - Buy/Sell zone (dynamic)
+    - BUY/SELL signals (client-side: RSI + BB + Stoch + Williams %R + EMA trend)
+    - tracker_action/server (BUY/SELL/HOLD) dùng cùng logic với bot (ethtracker)
+    - SUBSCRIBE/UNSUBSCRIBE symbol này.
     """
     symbol = symbol.upper()
 
@@ -1590,11 +1363,10 @@ async def symbol_dashboard(request: Request, symbol: str):
         logging.error(f"[SYMBOL DASH] Error fetching klines for {symbol}: {e}")
         klines = []
 
-    labels: list[str] = []
-    closes: list[float] = []
-    highs: list[float] = []
-    lows: list[float] = []
-    open_times_ms_all: list[int] = []
+    labels: List[str] = []
+    closes: List[float] = []
+    highs: List[float] = []
+    lows: List[float] = []
 
     for k in klines:
         try:
@@ -1602,19 +1374,18 @@ async def symbol_dashboard(request: Request, symbol: str):
             dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
             labels.append(dt.strftime("%Y-%m-%d %H:%M"))
 
-            high = float(k[2])
-            low = float(k[3])
-            close = float(k[4])
+            o = float(k[1])
+            h = float(k[2])
+            l = float(k[3])
+            c = float(k[4])
 
-            open_times_ms_all.append(open_time_ms)
-            highs.append(high)
-            lows.append(low)
-            closes.append(close)
+            highs.append(h)
+            lows.append(l)
+            closes.append(c)
         except Exception as e:
             logging.warning(f"[SYMBOL DASH] Bad kline row for {symbol}: {e}")
             continue
 
-    # Không có dữ liệu -> render trống
     if not closes:
         context = {
             "request": request,
@@ -1627,29 +1398,26 @@ async def symbol_dashboard(request: Request, symbol: str):
             "buy_high": None,
             "sell_low": None,
             "sell_high": None,
-            "big_orders": [],
+            "is_subscribed": False,
+            "tracker_action": "HOLD",
+            "tracker_reason": "No data",
         }
         return templates.TemplateResponse("symbol_dashboard.html", context)
 
-    # 2) Tính RSI, MACD
+    # 2) Indicator series
     rsi_values = _compute_rsi_series(closes, RSI_PERIOD)
     macd_line, macd_signal, macd_hist_values = _compute_macd_series(
         closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL
     )
-
-    # 3) EMA/SMA
     ema_fast = _compute_ema_series(closes, 12)
     ema_slow = _compute_ema_series(closes, 26)
-    sma_50 = _sma_series(closes, 50)  # (chưa dùng nhưng để dành)
+    sma_50 = _sma_series(closes, 50)
 
-    # 4) Bollinger Bands
     bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
-
-    # 5) Stochastic & Williams %R
     stoch_k = _stochastic_oscillator(highs, lows, closes, period=14)
     williams_r = _williams_r(highs, lows, closes, period=14)
 
-    # 6) Dynamic zones (tái dùng logic ETH)
+    # 3) Dynamic zones
     buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
     try:
         zones = _compute_eth_zones_from_range(symbol, TRACKER_INTERVAL, lookback=60)
@@ -1657,7 +1425,7 @@ async def symbol_dashboard(request: Request, symbol: str):
     except Exception as e:
         logging.error(f"[SYMBOL DASH] Error computing zones for {symbol}: {e}")
 
-    # 7) Đồng bộ chiều dài
+    # 4) Align length
     n = len(closes)
     min_len = min(
         n,
@@ -1670,7 +1438,6 @@ async def symbol_dashboard(request: Request, symbol: str):
         len(bb_lower),
         len(stoch_k),
         len(williams_r),
-        len(open_times_ms_all),
     )
 
     labels = labels[-min_len:]
@@ -1685,97 +1452,9 @@ async def symbol_dashboard(request: Request, symbol: str):
     williams_r = williams_r[-min_len:]
     highs = highs[-min_len:]
     lows = lows[-min_len:]
-    open_times_ms = open_times_ms_all[-min_len:]
 
-    # 8) Lấy BIG ORDERS từ aggTrades theo đúng khoảng thời gian của chart
-    # interval_ms = INTERVAL_MS_MAP.get(TRACKER_INTERVAL, 4 * 60 * 60_000)
-
-    # # Mỗi candle một giá big order (giữ notional lớn nhất trong candle)
-    big_orders = [None] * min_len
-    # big_notional = [0.0] * min_len
-    
-    # if open_times_ms:
-    #     # Giới hạn khoảng quét: 30 ngày gần nhất nhưng không sớm hơn cây nến đầu chart
-    #     now = datetime.utcnow()
-    #     start_30 = now - timedelta(days=30)
-    #     first_candle_dt = datetime.utcfromtimestamp(open_times_ms[0] / 1000.0)
-    
-    #     start_dt = max(start_30, first_candle_dt)
-    #     # End theo cây nến cuối cùng trên chart
-    #     last_candle_end_dt = datetime.utcfromtimestamp(
-    #         (open_times_ms[-1] + interval_ms) / 1000.0
-    #     )
-    
-    #     logging.info(
-    #         f"[BIG_ORDERS] Fetching aggTrades for {symbol} from {start_dt} to {last_candle_end_dt} (30d window)"
-    #     )
-    
-    #     cur = start_dt
-    #     end_dt = last_candle_end_dt
-    
-    #     while cur < end_dt:
-    #         next_t = cur + timedelta(hours=1)
-    #         # Không quét quá end_dt
-    #         if next_t > end_dt:
-    #             next_t = end_dt
-    
-    #         start_ms = int(cur.timestamp() * 1000)
-    #         end_ms = int(next_t.timestamp() * 1000)
-    
-    #         try:
-    #             resp = requests.get(
-    #                 "https://api.binance.com/api/v3/aggTrades",
-    #                 params={
-    #                     "symbol": symbol,
-    #                     "startTime": start_ms,
-    #                     "endTime": end_ms,
-    #                     "limit": 1000,
-    #                 },
-    #                 timeout=10,
-    #             )
-    #             resp.raise_for_status()
-    #             trades = resp.json()
-    #         except Exception as e:
-    #             logging.error(
-    #                 f"[BIG_ORDERS] Error fetching aggTrades {symbol} from {cur} to {next_t}: {e}"
-    #             )
-    #             cur = next_t
-    #             continue
-    
-    #         if not isinstance(trades, list) or not trades:
-    #             cur = next_t
-    #             continue
-    
-    #         for t in trades:
-    #             try:
-    #                 ts = int(t["T"])  # ms
-    #                 price = float(t["p"])
-    #                 qty = float(t["q"])
-    #                 notional = price * qty
-    
-    #                 if notional < BIG_ORDER_THRESHOLD:
-    #                     continue
-    
-    #                 # Map trade này vào candle 4H tương ứng
-    #                 for i, ot in enumerate(open_times_ms):
-    #                     # candle time range: [ot, ot + interval_ms)
-    #                     if ot <= ts < ot + interval_ms:
-    #                         # Chỉ giữ notional lớn nhất trong candle
-    #                         if notional > big_notional[i]:
-    #                             big_notional[i] = notional
-    #                             big_orders[i] = price
-    #                         break
-    #             except Exception:
-    #                 continue
-    
-    #         # Tăng 1 giờ
-    #         cur = next_t
-    
-    #     logging.info(
-    #         f"[BIG_ORDERS] {symbol}: {sum(1 for x in big_orders if x is not None)} candles có big orders >= {BIG_ORDER_THRESHOLD}"
-    #     )
-    # 9) Build rows_json cho JS
-    rows_json = []
+    # 5) rows_json cho JS vẽ chart
+    rows_json: List[Dict[str, Any]] = []
     for i in range(min_len):
         rows_json.append(
             {
@@ -1792,7 +1471,7 @@ async def symbol_dashboard(request: Request, symbol: str):
             }
         )
 
-    # 10) Giá hiện tại, RSI hiện tại, %change 24h
+    # 6) Price / RSI / %change 24h
     last_price = closes[-1]
     last_rsi = rsi_values[-1] if rsi_values else None
 
@@ -1805,6 +1484,32 @@ async def symbol_dashboard(request: Request, symbol: str):
     except Exception:
         change_24h = None
 
+    # 7) Server-side tracker action (logic giống bot)
+    tracker_action = "HOLD"
+    tracker_reason = ""
+    try:
+        payload = run_symbol_tracker_once(symbol, send_notify=False)
+        tracker_action = payload.get("action", "HOLD")
+        tracker_reason = payload.get("reason", "")
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error run_symbol_tracker_once for {symbol}: {e}")
+
+    # 8) Check subscription
+    is_subscribed = False
+    try:
+        resp = (
+            supabase_admin.table("bot_subscriptions")
+            .select("is_active")
+            .eq("symbol", symbol)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if rows and rows[0].get("is_active"):
+            is_subscribed = True
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error check subscription for {symbol}: {e}")
+
     context = {
         "request": request,
         "symbol": symbol,
@@ -1816,7 +1521,9 @@ async def symbol_dashboard(request: Request, symbol: str):
         "buy_high": buy_high,
         "sell_low": sell_low,
         "sell_high": sell_high,
-        "big_orders": [],  # 👈 dùng cho chart
+        "is_subscribed": is_subscribed,
+        "tracker_action": tracker_action,
+        "tracker_reason": tracker_reason,
     }
 
     return templates.TemplateResponse("symbol_dashboard.html", context)
