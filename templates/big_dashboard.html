@@ -173,7 +173,7 @@
     <header class="header">
       <div class="header-title">Big Orders Dashboard</div>
       <div class="header-sub">
-        Tổng hợp big trades BTCUSDT & ETHUSDT trong 24h qua (dữ liệu từ table <code>big_trades</code>).
+        Tổng hợp big trades BTCUSDT & ETHUSDT trong 24h qua.
         {% if from_time and to_time %}
         <br />
         <small>Window: {{ from_time }} → {{ to_time }} (UTC)</small>
@@ -183,7 +183,7 @@
 
     {% if not has_data %}
       <div class="no-data">
-        Chưa có dữ liệu big_trades trong 24h qua hoặc không kết nối được Supabase.
+        Chưa có dữ liệu big_trades trong 24h qua hoặc lỗi kết nối.
       </div>
     {% else %}
 
@@ -199,26 +199,25 @@
         <div class="stat-row">
           <span class="stat-label">BUY total</span>
           <span class="stat-value">
-            {{ "%.0f"|format(s.buy) }} USDT
+            {{ s.buy | comma }} USDT
             <span class="badge-buy">{{ "%.1f"|format(s.pct_buy) }}%</span>
           </span>
         </div>
+
         <div class="stat-row">
           <span class="stat-label">SELL total</span>
           <span class="stat-value">
-            {{ "%.0f"|format(s.sell) }} USDT
+            {{ s.sell | comma }} USDT
             <span class="badge-sell">{{ "%.1f"|format(s.pct_sell) }}%</span>
           </span>
         </div>
+
         <div class="stat-row" style="margin-top:6px;">
           <span class="stat-label">TOTAL</span>
-          <span class="stat-value">{{ "%.0f"|format(s.total) }} USDT</span>
+          <span class="stat-value">{{ s.total | comma }} USDT</span>
         </div>
         {% else %}
-        <div class="stat-row">
-          <span class="stat-label">No data</span>
-          <span class="stat-value">–</span>
-        </div>
+        <div class="stat-row"><span>No data</span></div>
         {% endif %}
       </div>
       {% endfor %}
@@ -254,9 +253,9 @@
           {% for r in rows %}
           <tr>
             <td>{{ r.range_str }}</td>
-            <td>{{ "%.0f"|format(r.buy) }}</td>
-            <td>{{ "%.0f"|format(r.sell) }}</td>
-            <td>{{ "%.0f"|format(r.total) }}</td>
+            <td>{{ r.buy | comma }}</td>
+            <td>{{ r.sell | comma }}</td>
+            <td>{{ r.total | comma }}</td>
             <td>
               {% if r.dominance == "BUY" %}
                 <span class="dom-buy">BUY</span>
@@ -271,9 +270,7 @@
         </tbody>
       </table>
       {% else %}
-      <div class="no-data">
-        Không có big trades nào cho {{ sym }} trong 24h qua.
-      </div>
+      <div class="no-data">Không có big trades cho {{ sym }} trong 24h qua.</div>
       {% endif %}
     </section>
     {% endfor %}
