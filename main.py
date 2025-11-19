@@ -1358,11 +1358,12 @@ async def big_trades_dashboard(request: Request):
     Dashboard Big Orders:
     - Tính tổng giá trị BUY / SELL trong 24h qua cho BTCUSDT & ETHUSDT
     - Tính %BUY / %SELL
+    - Đếm số lệnh BUY / SELL
+    - Tìm lệnh BUY / SELL có notional lớn nhất cho từng symbol
     - Tính tổng giá trị BUY / SELL theo từng vùng giá:
         + ETHUSDT: mỗi vùng 50$
         + BTCUSDT: mỗi vùng 500$
-    - Tìm lệnh BUY/SELL có notional lớn nhất cho từng symbol
-    - Đếm tổng số lệnh BUY/SELL
+      và đếm số lệnh trong từng vùng.
     """
     symbols = ["BTCUSDT", "ETHUSDT"]
 
@@ -1436,7 +1437,9 @@ async def big_trades_dashboard(request: Request):
     # -----------------------------------------
     # 3) Buckets theo vùng giá
     # -----------------------------------------
-    # buckets[symbol][bucket_index] = {low, high, BUY, SELL}
+    # buckets[symbol][bucket_index] = {
+    #   low, high, BUY, SELL, buy_count, sell_count
+    # }
     buckets: Dict[str, Dict[int, Dict[str, Any]]] = {
         "BTCUSDT": {},
         "ETHUSDT": {},
@@ -1487,9 +1490,17 @@ async def big_trades_dashboard(request: Request):
                 "high": high,
                 "BUY": 0.0,
                 "SELL": 0.0,
+                "buy_count": 0,
+                "sell_count": 0,
             }
 
+        # Cộng tiền
         symbol_buckets[bucket_index][side] += notional
+        # Cộng số lệnh
+        if side == "BUY":
+            symbol_buckets[bucket_index]["buy_count"] += 1
+        else:
+            symbol_buckets[bucket_index]["sell_count"] += 1
 
     # -----------------------------------------
     # 4) Summary view + %BUY/%SELL + largest
@@ -1536,6 +1547,8 @@ async def big_trades_dashboard(request: Request):
             buy_val = info["BUY"]
             sell_val = info["SELL"]
             total = buy_val + sell_val
+            buy_count = info["buy_count"]
+            sell_count = info["sell_count"]
 
             if buy_val > sell_val:
                 dominance = "BUY"
@@ -1551,6 +1564,8 @@ async def big_trades_dashboard(request: Request):
                     "sell": sell_val,
                     "total": total,
                     "dominance": dominance,
+                    "buy_count": buy_count,
+                    "sell_count": sell_count,
                 }
             )
 
@@ -1566,6 +1581,7 @@ async def big_trades_dashboard(request: Request):
         "to_time": now_utc,
     }
     return templates.TemplateResponse("big_dashboard.html", context)
+
 
 
 
