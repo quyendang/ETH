@@ -31,6 +31,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from supabase import create_client, Client
 
+
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.fernet import Fernet, InvalidToken
+
 # ------------------------------------------------------------------
 # 1) GLOBAL APP/ENV CONFIG
 # ------------------------------------------------------------------
@@ -113,6 +119,29 @@ class UserStatsResponse(BaseModel):
     userid: str
     email: str | None = None
     counts: Dict[str, int]
+
+
+# --------- Helper: tạo Fernet key từ password + salt ---------
+def get_fernet(password: str, salt: str) -> Fernet:
+    """
+    Tạo Fernet object từ password + salt (string).
+    Salt nên cố định nếu muốn decode lại sau này.
+    """
+    password_bytes = password.encode("utf-8")
+    salt_bytes = salt.encode("utf-8")
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt_bytes,
+        iterations=390_000,
+        backend=default_backend(),
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password_bytes))
+    return Fernet(key)
+
+# --------- Routes ---------
+
 
 
 # ------------------------------------------------------------------
@@ -1582,7 +1611,67 @@ async def big_trades_dashboard(request: Request):
     }
     return templates.TemplateResponse("big_dashboard.html", context)
 
+@app.get("/code", response_class=HTMLResponse)
+async def code_get(request: Request):
+    """
+    Render form encode/decode.
+    """
+    return templates.TemplateResponse(
+        "code.html",
+        {
+            "request": request,
+            "mode": "encode",
+            "input_data": "",
+            "password": "",
+            "salt": "",
+            "result": "",
+            "error": "",
+        },
+    )
 
+@app.post("/code", response_class=HTMLResponse)
+async def code_post(
+    request: Request,
+    mode: str = Form(...),      # "encode" hoặc "decode"
+    input_data: str = Form(...),
+    password: str = Form(...),
+    salt: str = Form(...),
+):
+    error = ""
+    result = ""
+
+    if not input_data or not password or not salt:
+        error = "Vui lòng nhập đầy đủ: Data, Password, Salt."
+    else:
+        try:
+            fernet = get_fernet(password, salt)
+
+            if mode == "encode":
+                token = fernet.encrypt(input_data.encode("utf-8"))
+                result = token.decode("utf-8")
+            elif mode == "decode":
+                try:
+                    decoded = fernet.decrypt(input_data.encode("utf-8"))
+                    result = decoded.decode("utf-8")
+                except InvalidToken:
+                    error = "Giải mã thất bại: sai password/salt hoặc chuỗi không hợp lệ."
+            else:
+                error = "Mode không hợp lệ."
+        except Exception as e:
+            error = f"Lỗi: {e}"
+
+    return templates.TemplateResponse(
+        "code.html",
+        {
+            "request": request,
+            "mode": mode,
+            "input_data": input_data,
+            "password": password,
+            "salt": salt,
+            "result": result,
+            "error": error,
+        },
+    )
 
 
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
