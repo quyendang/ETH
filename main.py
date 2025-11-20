@@ -1507,7 +1507,7 @@ async def big_trades_dashboard(request: Request):
             }
 
         # Buckets theo vùng giá
-        step = 500.0 if symbol == "BTCUSDT" else 50.0
+        step = 1000.0 if symbol == "BTCUSDT" else 50.0
         bucket_index = int(price // step)
         low = bucket_index * step
         high = (bucket_index + 1) * step
