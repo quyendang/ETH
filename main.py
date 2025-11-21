@@ -1412,6 +1412,34 @@ async def unsubscribe_symbol(symbol: str = Form(...)):
     return RedirectResponse(url=f"/bots/{symbol}", status_code=303)
 
 
+def fetch_all_bigtrades_24h(symbols, since_utc):
+    PAGE_SIZE = 2000
+    offset = 0
+    all_rows = []
+
+    while True:
+        resp = (
+            supabase_admin.table("big_trades")
+            .select("*")
+            .gte("trade_time", since_utc.isoformat())
+            .in_("symbol", symbols)
+            .range(offset, offset + PAGE_SIZE - 1)
+            .order("trade_time", desc=False)   # important!
+            .execute()
+        )
+
+        data = resp.data or []
+        all_rows.extend(data)
+
+        # Nếu ít hơn PAGE_SIZE → hết dữ liệu rồi
+        if len(data) < PAGE_SIZE:
+            break
+
+        offset += PAGE_SIZE
+
+    return all_rows
+
+
 @_rsi_router.get("/big", response_class=HTMLResponse)
 async def big_trades_dashboard(request: Request):
     """
@@ -1447,14 +1475,15 @@ async def big_trades_dashboard(request: Request):
 
     # Lấy dữ liệu 24h gần nhất từ bảng big_trades
     try:
-        resp = (
-            supabase_admin.table("big_trades")
-            .select("*")
-            .gte("trade_time", since_utc.isoformat())
-            .in_("symbol", symbols)
-            .execute()
-        )
-        rows = resp.data or []
+        # resp = (
+        #     supabase_admin.table("big_trades")
+        #     .select("*")
+        #     .gte("trade_time", since_utc.isoformat())
+        #     .in_("symbol", symbols)
+        #     .execute()
+        # )
+        # rows = resp.data or []
+        rows = fetch_all_bigtrades_24h(symbols, since_utc)
     except Exception as e:
         logging.error(f"[BIG_TRADES] Error fetch big_trades: {e}")
         rows = []
