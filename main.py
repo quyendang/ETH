@@ -1475,15 +1475,15 @@ async def big_trades_dashboard(request: Request):
 
     # Lấy dữ liệu 24h gần nhất từ bảng big_trades
     try:
-        # resp = (
-        #     supabase_admin.table("big_trades")
-        #     .select("*")
-        #     .gte("trade_time", since_utc.isoformat())
-        #     .in_("symbol", symbols)
-        #     .execute()
-        # )
-        # rows = resp.data or []
-        rows = fetch_all_bigtrades_24h(symbols, since_utc)
+        resp = (
+            supabase_admin.table("big_trades")
+            .select("*")
+            .gte("trade_time", since_utc.isoformat())
+            .in_("symbol", symbols)
+            .execute()
+        )
+        rows = resp.data or []
+        # rows = fetch_all_bigtrades_24h(symbols, since_utc)
     except Exception as e:
         logging.error(f"[BIG_TRADES] Error fetch big_trades: {e}")
         rows = []
