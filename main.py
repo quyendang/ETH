@@ -1440,7 +1440,7 @@ def fetch_all_bigtrades_24h(symbols, since_utc):
     return all_rows
 
 def cleanup_bigtrades_older_than_24h():
-    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    cutoff = (datetime.utcnow() - timedelta(days=3)).isoformat()
 
     try:
         supabase_admin.table("big_trades") \
@@ -1488,7 +1488,7 @@ async def big_trades_dashboard(request: Request):
         return templates.TemplateResponse("big_dashboard.html", context)
 
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
-    since_utc = now_utc - timedelta(hours=24)
+    since_utc = now_utc - timedelta(days=3)
 
     # Lấy dữ liệu 24h gần nhất từ bảng big_trades
     try:
