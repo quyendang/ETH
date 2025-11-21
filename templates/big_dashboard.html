@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>Big Orders Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
   <style>
     :root {
@@ -132,35 +133,6 @@
       font-weight: 400;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-    }
-
-    thead {
-      background: #f9fafb;
-    }
-
-    th, td {
-      padding: 6px 8px;
-      border-bottom: 1px solid var(--border);
-      text-align: right;
-    }
-
-    th:first-child,
-    td:first-child {
-      text-align: left;
-    }
-
-    tbody tr:nth-child(even) {
-      background: #f9fafb;
-    }
-
-    .dom-buy { color: var(--green); font-weight: 600; }
-    .dom-sell { color: var(--red); font-weight: 600; }
-    .dom-bal { color: var(--text-sub); }
-
     .no-data {
       margin-top: 24px;
       font-size: 0.9rem;
@@ -172,6 +144,25 @@
       color: var(--text-sub);
       margin-top: 2px;
     }
+
+    .last-trade {
+      font-size: 0.9rem;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #eef2ff;
+    }
+
+    .last-trade-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 320px;
+    }
   </style>
 </head>
 <body>
@@ -182,9 +173,21 @@
         Tổng hợp big trades BTCUSDT & ETHUSDT trong 24h qua.
         {% if from_time and to_time %}
         <br />
-        <small>Window: {{ from_time }} → {{ to_time }} (UTC)</small>
+        <small>Window (UTC): {{ from_time }} → {{ to_time }}</small>
         {% endif %}
       </div>
+
+      {% if last_trade %}
+      <div class="last-trade">
+        <div class="last-trade-title">Last Big Order (24h gần nhất, giờ VN)</div>
+        <div>Symbol: <strong>{{ last_trade.symbol }}</strong></div>
+        <div>Side: <strong>{{ last_trade.side }}</strong></div>
+        <div>Exchange: <strong>{{ last_trade.exchange }}</strong></div>
+        <div>Notional: <strong>{{ last_trade.notional | comma }} USDT</strong></div>
+        <div>Giá: <strong>{{ last_trade.price }}</strong> – Qty: <strong>{{ last_trade.qty }}</strong></div>
+        <div>Time: <strong>{{ last_trade.time_vn }}</strong></div>
+      </div>
+      {% endif %}
     </header>
 
     {% if not has_data %}
@@ -247,7 +250,7 @@
         </div>
         <div class="sub-info">
           Giá: {{ lb.price }} – Qty: {{ lb.qty }}<br />
-          Time: {{ lb.time }}
+          Time (VN): {{ lb.time_vn }}
         </div>
         {% else %}
           <span class="stat-value">No BUY trades</span>
@@ -262,7 +265,7 @@
         </div>
         <div class="sub-info">
           Giá: {{ ls.price }} – Qty: {{ ls.qty }}<br />
-          Time: {{ ls.time }}
+          Time (VN): {{ ls.time_vn }}
         </div>
         {% else %}
           <span class="stat-value">No SELL trades</span>
@@ -275,12 +278,12 @@
       {% endfor %}
     </section>
 
-    <!-- BUCKET TABLES -->
+    <!-- BUCKET CHARTS -->
     {% for sym in ["BTCUSDT", "ETHUSDT"] %}
-    {% set rows = buckets.get(sym) %}
+    {% set chart = buckets_chart.get(sym) %}
     <section class="panel">
       <div class="panel-title">
-        <div>{{ sym }} – Big trades theo vùng giá</div>
+        <div>{{ sym }} – Big trades theo vùng giá (Horizontal Bar)</div>
         <span class="sub">
           {% if sym == "BTCUSDT" %}
             Mỗi vùng 500 USDT
@@ -290,43 +293,10 @@
         </span>
       </div>
 
-      {% if rows and rows|length > 0 %}
-      <table>
-        <thead>
-          <tr>
-            <th>Vùng giá</th>
-            <th>BUY (USDT)</th>
-            <th>SELL (USDT)</th>
-            <th>TOTAL (USDT)</th>
-            <th>Dominance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in rows %}
-          <tr>
-            <td>{{ r.range_str }}</td>
-            <td>
-              {{ r.buy | comma }}
-              ({{ r.buy_count | comma }} orders)
-            </td>
-            <td>
-              {{ r.sell | comma }}
-              ({{ r.sell_count | comma }} orders)
-            </td>
-            <td>{{ r.total | comma }}</td>
-            <td>
-              {% if r.dominance == "BUY" %}
-                <span class="dom-buy">BUY</span>
-              {% elif r.dominance == "SELL" %}
-                <span class="dom-sell">SELL</span>
-              {% else %}
-                <span class="dom-bal">BALANCED</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      {% if chart and chart.labels and chart.labels|length > 0 %}
+      <div class="chart-container">
+        <canvas id="chart_{{ sym }}"></canvas>
+      </div>
       {% else %}
       <div class="no-data">Không có big trades cho {{ sym }} trong 24h qua.</div>
       {% endif %}
@@ -335,5 +305,81 @@
 
     {% endif %}
   </div>
+
+  <script>
+    // Data từ backend cho chart
+    const bucketsChart = {{ buckets_chart | tojson }};
+    const symbols = ["BTCUSDT", "ETHUSDT"];
+
+    symbols.forEach(sym => {
+      const dataObj = bucketsChart[sym];
+      if (!dataObj || !dataObj.labels || dataObj.labels.length === 0) return;
+
+      const ctx = document.getElementById("chart_" + sym);
+      if (!ctx) return;
+
+      const labels = dataObj.labels;
+      const buyData = dataObj.buy_data;
+      const sellData = dataObj.sell_data;
+
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "BUY (USDT)",
+              data: buyData,
+              backgroundColor: "rgba(34, 197, 94, 0.7)",
+            },
+            {
+              label: "SELL (USDT)",
+              data: sellData,
+              backgroundColor: "rgba(239, 68, 68, 0.7)",
+            }
+          ]
+        },
+        options: {
+          indexAxis: "y", // horizontal
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: "Notional (USDT)"
+              },
+              ticks: {
+                callback: function(value) {
+                  // format đơn giản, có thể tuỳ chỉnh
+                  return value.toLocaleString();
+                }
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: "Vùng giá"
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              position: "top"
+            },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  const val = ctx.parsed.x || 0;
+                  const label = ctx.dataset.label || "";
+                  return label + ": " + val.toLocaleString() + " USDT";
+                }
+              }
+            }
+          }
+        }
+      });
+    });
+  </script>
 </body>
 </html>
