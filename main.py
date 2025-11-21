@@ -9,7 +9,7 @@ import uuid
 import base64
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -48,6 +48,37 @@ def comma_format(value):
         return f"{float(value):,.0f}"
     except Exception:
         return value
+
+def _parse_utc_and_vn_time(raw: Any):
+    """
+    raw: chuỗi ISO timestamptz từ Supabase, ví dụ: '2025-11-20T21:49:57.792573+00:00'
+    Trả về (dt_utc, formatted_vn_str)
+    format: 'HH:MM, YYYY-MM-DD'
+    """
+    if raw is None:
+        return None, None
+    try:
+        if isinstance(raw, str):
+            # Python 3.11 trở lên hỗ trợ offset như +00:00
+            dt_utc = datetime.fromisoformat(raw)
+        elif isinstance(raw, datetime):
+            dt_utc = raw
+        else:
+            return None, None
+
+        # Đảm bảo timezone là UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        else:
+            dt_utc = dt_utc.astimezone(timezone.utc)
+
+        # Convert sang VN (+7)
+        dt_vn = dt_utc + timedelta(hours=7)
+        vn_str = dt_vn.strftime("%H:%M, %Y-%m-%d")
+        return dt_utc, vn_str
+    except Exception:
+        return None, None
+
 
 templates.env.filters["comma"] = comma_format
 
@@ -1393,6 +1424,7 @@ async def big_trades_dashboard(request: Request):
         + ETHUSDT: mỗi vùng 50$
         + BTCUSDT: mỗi vùng 500$
       và đếm số lệnh trong từng vùng.
+    - Hiển thị lệnh cuối cùng (latest order) giữa 2 symbol
     """
     symbols = ["BTCUSDT", "ETHUSDT"]
 
@@ -1403,19 +1435,21 @@ async def big_trades_dashboard(request: Request):
             "has_data": False,
             "summary": {},
             "buckets": {},
+            "buckets_chart": {},
+            "last_trade": None,
             "from_time": None,
             "to_time": None,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
     since_utc = now_utc - timedelta(hours=24)
 
     # Lấy dữ liệu 24h gần nhất từ bảng big_trades
     try:
         resp = (
             supabase_admin.table("big_trades")
-            .select("symbol, trade_time, price, qty, notional_usdt, side")
+            .select("*")
             .gte("trade_time", since_utc.isoformat())
             .in_("symbol", symbols)
             .execute()
@@ -1431,6 +1465,8 @@ async def big_trades_dashboard(request: Request):
             "has_data": False,
             "summary": {},
             "buckets": {},
+            "buckets_chart": {},
+            "last_trade": None,
             "from_time": since_utc,
             "to_time": now_utc,
         }
@@ -1451,15 +1487,15 @@ async def big_trades_dashboard(request: Request):
     # -----------------------------------------
     # 2) Largest BUY/SELL
     # -----------------------------------------
-    # largest_trades[symbol][side] = {notional, price, qty, time}
+    # largest_trades[symbol][side] = {notional, price, qty, time_vn}
     largest_trades: Dict[str, Dict[str, Dict[str, Any]]] = {
         "BTCUSDT": {
-            "BUY": {"notional": 0.0, "price": None, "qty": None, "time": None},
-            "SELL": {"notional": 0.0, "price": None, "qty": None, "time": None},
+            "BUY": {"notional": 0.0, "price": None, "qty": None, "time_vn": None},
+            "SELL": {"notional": 0.0, "price": None, "qty": None, "time_vn": None},
         },
         "ETHUSDT": {
-            "BUY": {"notional": 0.0, "price": None, "qty": None, "time": None},
-            "SELL": {"notional": 0.0, "price": None, "qty": None, "time": None},
+            "BUY": {"notional": 0.0, "price": None, "qty": None, "time_vn": None},
+            "SELL": {"notional": 0.0, "price": None, "qty": None, "time_vn": None},
         },
     }
 
@@ -1474,6 +1510,12 @@ async def big_trades_dashboard(request: Request):
         "ETHUSDT": {},
     }
 
+    # -----------------------------------------
+    # 4) Last trade (global cuối cùng giữa 2 symbol)
+    # -----------------------------------------
+    last_trade_dt_utc = None
+    last_trade: Dict[str, Any] | None = None
+
     for row in rows:
         symbol = (row.get("symbol") or "").upper()
         if symbol not in summary_notional:
@@ -1483,13 +1525,18 @@ async def big_trades_dashboard(request: Request):
         if side not in ("BUY", "SELL"):
             continue
 
+        # Parse thời gian
+        raw_time = row.get("trade_time")
+        dt_utc, vn_str = _parse_utc_and_vn_time(raw_time)
+
         try:
             price = float(row.get("price") or 0)
             notional = float(row.get("notional_usdt") or 0)
             qty = float(row.get("qty") or 0)
-            trade_time = row.get("trade_time")
         except Exception:
             continue
+
+        exchange = row.get("exchange") or "N/A"
 
         # Tổng notional
         summary_notional[symbol][side] += notional
@@ -1503,7 +1550,7 @@ async def big_trades_dashboard(request: Request):
                 "notional": notional,
                 "price": price,
                 "qty": qty,
-                "time": trade_time,
+                "time_vn": vn_str,
             }
 
         # Buckets theo vùng giá
@@ -1531,8 +1578,22 @@ async def big_trades_dashboard(request: Request):
         else:
             symbol_buckets[bucket_index]["sell_count"] += 1
 
+        # Last trade (global)
+        if dt_utc is not None:
+            if last_trade_dt_utc is None or dt_utc > last_trade_dt_utc:
+                last_trade_dt_utc = dt_utc
+                last_trade = {
+                    "symbol": symbol,
+                    "side": side,
+                    "price": price,
+                    "qty": qty,
+                    "notional": notional,
+                    "exchange": exchange,
+                    "time_vn": vn_str,
+                }
+
     # -----------------------------------------
-    # 4) Summary view + %BUY/%SELL + largest
+    # 5) Summary view + %BUY/%SELL + largest
     # -----------------------------------------
     summary_view: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
@@ -1559,14 +1620,16 @@ async def big_trades_dashboard(request: Request):
         }
 
     # -----------------------------------------
-    # 5) Buckets view
+    # 6) Buckets view + data cho chart
     # -----------------------------------------
     buckets_view: Dict[str, List[Dict[str, Any]]] = {}
+    buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
 
     for sym in symbols:
         sym_buckets = buckets[sym]
         if not sym_buckets:
             buckets_view[sym] = []
+            buckets_chart[sym] = {"labels": [], "buy_data": [], "sell_data": []}
             continue
 
         rows_list: List[Dict[str, Any]] = []
@@ -1598,14 +1661,27 @@ async def big_trades_dashboard(request: Request):
                 }
             )
 
+        # sort theo range giá tăng dần
         rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
         buckets_view[sym] = rows_list
+
+        # Chuẩn bị data cho horizontal bar chart
+        labels = [r["range_str"] for r in rows_list]
+        buy_data = [r["buy"] for r in rows_list]
+        sell_data = [r["sell"] for r in rows_list]
+        buckets_chart[sym] = {
+            "labels": labels,
+            "buy_data": buy_data,
+            "sell_data": sell_data,
+        }
 
     context = {
         "request": request,
         "has_data": True,
         "summary": summary_view,
         "buckets": buckets_view,
+        "buckets_chart": buckets_chart,
+        "last_trade": last_trade,
         "from_time": since_utc,
         "to_time": now_utc,
     }
