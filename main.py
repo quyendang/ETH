@@ -1456,21 +1456,15 @@ def cleanup_bigtrades_older_than_24h():
 @_rsi_router.get("/big", response_class=HTMLResponse)
 async def big_trades_dashboard(request: Request):
     """
-    Dashboard Big Orders:
-    - Tính tổng giá trị BUY / SELL trong 24h qua cho BTCUSDT & ETHUSDT
-    - Tính %BUY / %SELL
-    - Đếm số lệnh BUY / SELL
-    - Tìm lệnh BUY / SELL có notional lớn nhất cho từng symbol
-    - Tính tổng giá trị BUY / SELL theo từng vùng giá:
-        + ETHUSDT: mỗi vùng 50$
-        + BTCUSDT: mỗi vùng 500$
-      và đếm số lệnh trong từng vùng.
-    - Hiển thị lệnh cuối cùng (latest order) giữa 2 symbol
+    Big Orders Dashboard:
+    - Window: 7 ngày gần nhất
+    - Tính tổng BUY/SELL & % cho BTCUSDT, ETHUSDT
+    - Đếm số lệnh BUY/SELL
+    - Largest BUY/SELL từng symbol (theo notional)
+    - Last big order (mới nhất trong 7 ngày, đổi giờ sang VN)
+    - Buckets theo vùng giá + data cho Horizontal Bar Chart
+    - Thống kê BUY/SELL theo từng sàn (exchange) cho mỗi symbol
     """
-
-    cleanup_bigtrades_older_than_24h()
-
-    
     symbols = ["BTCUSDT", "ETHUSDT"]
 
     if supabase_admin is None:
@@ -1481,6 +1475,7 @@ async def big_trades_dashboard(request: Request):
             "summary": {},
             "buckets": {},
             "buckets_chart": {},
+            "exchange_summary": {},
             "last_trade": None,
             "from_time": None,
             "to_time": None,
@@ -1488,9 +1483,10 @@ async def big_trades_dashboard(request: Request):
         return templates.TemplateResponse("big_dashboard.html", context)
 
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    # WINDOW = 7 ngày
     since_utc = now_utc - timedelta(days=3)
 
-    # Lấy dữ liệu 24h gần nhất từ bảng big_trades
+    # Lấy dữ liệu 7 ngày gần nhất từ bảng big_trades
     try:
         resp = (
             supabase_admin.table("big_trades")
@@ -1500,7 +1496,6 @@ async def big_trades_dashboard(request: Request):
             .execute()
         )
         rows = resp.data or []
-        # rows = fetch_all_bigtrades_24h(symbols, since_utc)
     except Exception as e:
         logging.error(f"[BIG_TRADES] Error fetch big_trades: {e}")
         rows = []
@@ -1512,6 +1507,7 @@ async def big_trades_dashboard(request: Request):
             "summary": {},
             "buckets": {},
             "buckets_chart": {},
+            "exchange_summary": {},
             "last_trade": None,
             "from_time": since_utc,
             "to_time": now_utc,
@@ -1562,6 +1558,15 @@ async def big_trades_dashboard(request: Request):
     last_trade_dt_utc = None
     last_trade: Dict[str, Any] | None = None
 
+    # -----------------------------------------
+    # 5) Exchange-level stats
+    # -----------------------------------------
+    # exchange_stats[symbol][exchange] = {buy, sell, buy_count, sell_count}
+    exchange_stats: Dict[str, Dict[str, Dict[str, Any]]] = {
+        "BTCUSDT": {},
+        "ETHUSDT": {},
+    }
+
     for row in rows:
         symbol = (row.get("symbol") or "").upper()
         if symbol not in summary_notional:
@@ -1582,7 +1587,7 @@ async def big_trades_dashboard(request: Request):
         except Exception:
             continue
 
-        exchange = row.get("exchange") or "N/A"
+        exchange = (row.get("exchange") or "Unknown").title()
 
         # Tổng notional
         summary_notional[symbol][side] += notional
@@ -1616,13 +1621,28 @@ async def big_trades_dashboard(request: Request):
                 "sell_count": 0,
             }
 
-        # Cộng tiền
+        # Cộng tiền & count theo bucket
         symbol_buckets[bucket_index][side] += notional
-        # Cộng số lệnh
         if side == "BUY":
             symbol_buckets[bucket_index]["buy_count"] += 1
         else:
             symbol_buckets[bucket_index]["sell_count"] += 1
+
+        # Exchange-level stats
+        sym_ex_stats = exchange_stats[symbol]
+        if exchange not in sym_ex_stats:
+            sym_ex_stats[exchange] = {
+                "buy": 0.0,
+                "sell": 0.0,
+                "buy_count": 0,
+                "sell_count": 0,
+            }
+        if side == "BUY":
+            sym_ex_stats[exchange]["buy"] += notional
+            sym_ex_stats[exchange]["buy_count"] += 1
+        else:
+            sym_ex_stats[exchange]["sell"] += notional
+            sym_ex_stats[exchange]["sell_count"] += 1
 
         # Last trade (global)
         if dt_utc is not None:
@@ -1639,7 +1659,7 @@ async def big_trades_dashboard(request: Request):
                 }
 
     # -----------------------------------------
-    # 5) Summary view + %BUY/%SELL + largest
+    # 6) Summary view + %BUY/%SELL + largest
     # -----------------------------------------
     summary_view: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
@@ -1666,7 +1686,7 @@ async def big_trades_dashboard(request: Request):
         }
 
     # -----------------------------------------
-    # 6) Buckets view + data cho chart
+    # 7) Buckets view + data cho chart
     # -----------------------------------------
     buckets_view: Dict[str, List[Dict[str, Any]]] = {}
     buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
@@ -1707,11 +1727,9 @@ async def big_trades_dashboard(request: Request):
                 }
             )
 
-        # sort theo range giá tăng dần
         rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
         buckets_view[sym] = rows_list
 
-        # Chuẩn bị data cho horizontal bar chart
         labels = [r["range_str"] for r in rows_list]
         buy_data = [r["buy"] for r in rows_list]
         sell_data = [r["sell"] for r in rows_list]
@@ -1721,12 +1739,46 @@ async def big_trades_dashboard(request: Request):
             "sell_data": sell_data,
         }
 
+    # -----------------------------------------
+    # 8) Exchange summary view (dùng cho HTML)
+    # -----------------------------------------
+    exchange_summary: Dict[str, List[Dict[str, Any]]] = {}
+    for sym in symbols:
+        sym_ex = exchange_stats[sym]
+        rows_ex: List[Dict[str, Any]] = []
+        for ex, st in sym_ex.items():
+            buy_val = st["buy"]
+            sell_val = st["sell"]
+            total = buy_val + sell_val
+            if total > 0:
+                pct_buy = buy_val / total * 100.0
+                pct_sell = sell_val / total * 100.0
+            else:
+                pct_buy = pct_sell = 0.0
+
+            rows_ex.append(
+                {
+                    "exchange": ex,
+                    "buy": buy_val,
+                    "sell": sell_val,
+                    "total": total,
+                    "buy_count": st["buy_count"],
+                    "sell_count": st["sell_count"],
+                    "pct_buy": pct_buy,
+                    "pct_sell": pct_sell,
+                }
+            )
+        # sort theo tổng notional giảm dần
+        rows_ex.sort(key=lambda r: r["total"], reverse=True)
+        exchange_summary[sym] = rows_ex
+
     context = {
         "request": request,
         "has_data": True,
         "summary": summary_view,
         "buckets": buckets_view,
         "buckets_chart": buckets_chart,
+        "exchange_summary": exchange_summary,
         "last_trade": last_trade,
         "from_time": since_utc,
         "to_time": now_utc,
