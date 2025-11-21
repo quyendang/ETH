@@ -163,6 +163,31 @@
       width: 100%;
       height: 320px;
     }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    thead {
+      background: #f9fafb;
+    }
+
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f9fafb;
+    }
   </style>
 </head>
 <body>
@@ -170,7 +195,7 @@
     <header class="header">
       <div class="header-title">Big Orders Dashboard</div>
       <div class="header-sub">
-        Tổng hợp big trades BTCUSDT & ETHUSDT trong 24h qua.
+        Tổng hợp big trades BTCUSDT & ETHUSDT trong 7 ngày gần nhất.
         {% if from_time and to_time %}
         <br />
         <small>Window (UTC): {{ from_time }} → {{ to_time }}</small>
@@ -179,7 +204,7 @@
 
       {% if last_trade %}
       <div class="last-trade">
-        <div class="last-trade-title">Last Big Order (24h gần nhất, giờ VN)</div>
+        <div class="last-trade-title">Last Big Order (7 ngày gần nhất, giờ VN)</div>
         <div>Symbol: <strong>{{ last_trade.symbol }}</strong></div>
         <div>Side: <strong>{{ last_trade.side }}</strong></div>
         <div>Exchange: <strong>{{ last_trade.exchange }}</strong></div>
@@ -192,7 +217,7 @@
 
     {% if not has_data %}
       <div class="no-data">
-        Chưa có dữ liệu big_trades trong 24h qua hoặc lỗi kết nối.
+        Chưa có dữ liệu big_trades trong window hoặc lỗi kết nối.
       </div>
     {% else %}
 
@@ -202,7 +227,7 @@
       {% set s = summary.get(sym) %}
       <div class="card">
         <div class="card-title">{{ sym }}</div>
-        <div class="card-subtitle">Tổng giá trị & thống kê lệnh trong 24h (USDT)</div>
+        <div class="card-subtitle">Tổng giá trị & thống kê lệnh trong 7 ngày (USDT)</div>
 
         {% if s %}
         <!-- Tổng giá trị BUY / SELL -->
@@ -278,12 +303,12 @@
       {% endfor %}
     </section>
 
-    <!-- BUCKET CHARTS -->
+    <!-- BUCKET CHARTS (horizontal bar) -->
     {% for sym in ["BTCUSDT", "ETHUSDT"] %}
     {% set chart = buckets_chart.get(sym) %}
     <section class="panel">
       <div class="panel-title">
-        <div>{{ sym }} – Big trades theo vùng giá (Horizontal Bar)</div>
+        <div>{{ sym }} – Big trades theo vùng giá</div>
         <span class="sub">
           {% if sym == "BTCUSDT" %}
             Mỗi vùng 500 USDT
@@ -298,7 +323,51 @@
         <canvas id="chart_{{ sym }}"></canvas>
       </div>
       {% else %}
-      <div class="no-data">Không có big trades cho {{ sym }} trong 24h qua.</div>
+      <div class="no-data">Không có big trades cho {{ sym }} trong window.</div>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    <!-- EXCHANGE SUMMARY -->
+    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
+    {% set ex_rows = exchange_summary.get(sym) %}
+    <section class="panel">
+      <div class="panel-title">
+        <div>{{ sym }} – Volume theo sàn</div>
+        <span class="sub">BUY/SELL theo exchange trong 7 ngày</span>
+      </div>
+
+      {% if ex_rows and ex_rows|length > 0 %}
+      <table>
+        <thead>
+          <tr>
+            <th>Exchange</th>
+            <th>BUY (USDT)</th>
+            <th>SELL (USDT)</th>
+            <th>TOTAL (USDT)</th>
+            <th>BUY orders</th>
+            <th>SELL orders</th>
+            <th>%BUY</th>
+            <th>%SELL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ex_rows %}
+          <tr>
+            <td>{{ r.exchange }}</td>
+            <td>{{ r.buy | comma }}</td>
+            <td>{{ r.sell | comma }}</td>
+            <td>{{ r.total | comma }}</td>
+            <td>{{ r.buy_count | comma }}</td>
+            <td>{{ r.sell_count | comma }}</td>
+            <td>{{ "%.1f"|format(r.pct_buy) }}%</td>
+            <td>{{ "%.1f"|format(r.pct_sell) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="no-data">Không có dữ liệu exchange cho {{ sym }}.</div>
       {% endif %}
     </section>
     {% endfor %}
@@ -307,7 +376,6 @@
   </div>
 
   <script>
-    // Data từ backend cho chart
     const bucketsChart = {{ buckets_chart | tojson }};
     const symbols = ["BTCUSDT", "ETHUSDT"];
 
@@ -340,7 +408,7 @@
           ]
         },
         options: {
-          indexAxis: "y", // horizontal
+          indexAxis: "y",
           responsive: true,
           maintainAspectRatio: false,
           scales: {
@@ -351,7 +419,6 @@
               },
               ticks: {
                 callback: function(value) {
-                  // format đơn giản, có thể tuỳ chỉnh
                   return value.toLocaleString();
                 }
               }
