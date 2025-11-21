@@ -1448,7 +1448,7 @@ def cleanup_bigtrades_older_than_24h():
             .lt("trade_time", cutoff) \
             .execute()
 
-        logging.info(f"[CLEANUP] Deleted big_trades older than 24h (cutoff={cutoff})")
+        logging.info(f"[CLEANUP] Deleted big trades older than 24h (cutoff={cutoff})")
     except Exception as e:
         logging.error(f"[CLEANUP ERROR] {e}")
 
