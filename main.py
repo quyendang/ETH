@@ -1439,6 +1439,19 @@ def fetch_all_bigtrades_24h(symbols, since_utc):
 
     return all_rows
 
+def cleanup_bigtrades_older_than_24h():
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+
+    try:
+        supabase_admin.table("big_trades") \
+            .delete() \
+            .lt("trade_time", cutoff) \
+            .execute()
+
+        logging.info(f"[CLEANUP] Deleted big_trades older than 24h (cutoff={cutoff})")
+    except Exception as e:
+        logging.error(f"[CLEANUP ERROR] {e}")
+
 
 @_rsi_router.get("/big", response_class=HTMLResponse)
 async def big_trades_dashboard(request: Request):
@@ -1454,6 +1467,10 @@ async def big_trades_dashboard(request: Request):
       và đếm số lệnh trong từng vùng.
     - Hiển thị lệnh cuối cùng (latest order) giữa 2 symbol
     """
+
+    cleanup_bigtrades_older_than_24h()
+
+    
     symbols = ["BTCUSDT", "ETHUSDT"]
 
     if supabase_admin is None:
