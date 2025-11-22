@@ -1668,57 +1668,68 @@ async def big_trades_dashboard(request: Request):
             "largest_sell": largest_trades[sym]["SELL"],
         }
 
-    # 7) Buckets view + data cho chart
-    buckets_view: Dict[str, List[Dict[str, Any]]] = {}
-    buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
+   # 7) Buckets view + data cho chart
+buckets_view: Dict[str, List[Dict[str, Any]]] = {}
+buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
 
-    for sym in symbols:
-        sym_buckets = buckets[sym]
-        if not sym_buckets:
-            buckets_view[sym] = []
-            buckets_chart[sym] = {"labels": [], "buy_data": [], "sell_data": []}
-            continue
-
-        rows_list: List[Dict[str, Any]] = []
-        for idx, info in sym_buckets.items():
-            low = info["low"]
-            high = info["high"]
-            buy_val = info["BUY"]
-            sell_val = info["SELL"]
-            total = buy_val + sell_val
-            buy_count = info["buy_count"]
-            sell_count = info["sell_count"]
-
-            if buy_val > sell_val:
-                dominance = "BUY"
-            elif sell_val > buy_val:
-                dominance = "SELL"
-            else:
-                dominance = "BALANCED"
-
-            rows_list.append(
-                {
-                    "range_str": f"{low:.0f} – {high:.0f}",
-                    "buy": buy_val,
-                    "sell": sell_val,
-                    "total": total,
-                    "dominance": dominance,
-                    "buy_count": buy_count,
-                    "sell_count": sell_count,
-                }
-            )
-
-        rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
-        buckets_view[sym] = rows_list
-
-        labels = [r["range_str"] for r in rows_list]
-        buy_data = [r["buy"] for r in rows_list]
-        sell_data = [r["sell"] for r in rows_list]
+for sym in symbols:
+    sym_buckets = buckets[sym]
+    if not sym_buckets:
+        buckets_view[sym] = []
         buckets_chart[sym] = {
-            "labels": labels,
-            "buy_data": buy_data,
-            "sell_data": sell_data,
+            "labels": [],
+            "buy_data": [],
+            "sell_data": [],
+            "buy_counts": [],
+            "sell_counts": [],
         }
+        continue
+
+    rows_list: List[Dict[str, Any]] = []
+    for idx, info in sym_buckets.items():
+        low = info["low"]
+        high = info["high"]
+        buy_val = info["BUY"]
+        sell_val = info["SELL"]
+        total = buy_val + sell_val
+        buy_count = info["buy_count"]
+        sell_count = info["sell_count"]
+
+        dominance = (
+            "BUY" if buy_val > sell_val
+            else "SELL" if sell_val > buy_val
+            else "BALANCED"
+        )
+
+        rows_list.append(
+            {
+                "range_str": f"{low:.0f} – {high:.0f}",
+                "buy": buy_val,
+                "sell": sell_val,
+                "total": total,
+                "dominance": dominance,
+                "buy_count": buy_count,
+                "sell_count": sell_count,
+            }
+        )
+
+    rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
+    buckets_view[sym] = rows_list
+
+    labels = [r["range_str"] for r in rows_list]
+    buy_data = [r["buy"] for r in rows_list]
+    sell_data = [r["sell"] for r in rows_list]
+    buy_counts = [r["buy_count"] for r in rows_list]
+    sell_counts = [r["sell_count"] for r in rows_list]
+
+    buckets_chart[sym] = {
+        "labels": labels,
+        "buy_data": buy_data,
+        "sell_data": sell_data,
+        "buy_counts": buy_counts,
+        "sell_counts": sell_counts,
+    }
+
 
     # 8) Exchange summary
     exchange_summary: Dict[str, List[Dict[str, Any]]] = {}
