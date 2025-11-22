@@ -1458,12 +1458,12 @@ async def big_trades_dashboard(request: Request):
     """
     Big Orders Dashboard:
     - Window: 7 ngày gần nhất
-    - Tính tổng BUY/SELL & % cho BTCUSDT, ETHUSDT
+    - Tổng BUY/SELL & % cho BTCUSDT, ETHUSDT
     - Đếm số lệnh BUY/SELL
-    - Largest BUY/SELL từng symbol (theo notional)
-    - Last big order (mới nhất trong 7 ngày, đổi giờ sang VN)
-    - Buckets theo vùng giá + data cho Horizontal Bar Chart
-    - Thống kê BUY/SELL theo từng sàn (exchange) cho mỗi symbol
+    - Largest BUY/SELL từng symbol
+    - Last 10 big orders cho từng symbol (giờ VN)
+    - Buckets theo vùng giá + Horizontal Bar Chart
+    - Thống kê BUY/SELL theo từng sàn (exchange)
     """
     symbols = ["BTCUSDT", "ETHUSDT"]
 
@@ -1476,17 +1476,16 @@ async def big_trades_dashboard(request: Request):
             "buckets": {},
             "buckets_chart": {},
             "exchange_summary": {},
-            "last_trade": None,
+            "last_trades": {},
             "from_time": None,
             "to_time": None,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
-    # WINDOW = 7 ngày
     since_utc = now_utc - timedelta(days=3)
 
-    # Lấy dữ liệu 7 ngày gần nhất từ bảng big_trades
+    # Lấy dữ liệu 7 ngày gần nhất
     try:
         resp = (
             supabase_admin.table("big_trades")
@@ -1508,15 +1507,13 @@ async def big_trades_dashboard(request: Request):
             "buckets": {},
             "buckets_chart": {},
             "exchange_summary": {},
-            "last_trade": None,
+            "last_trades": {},
             "from_time": since_utc,
             "to_time": now_utc,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
-    # -----------------------------------------
     # 1) Tổng BUY/SELL & đếm số lệnh
-    # -----------------------------------------
     summary_notional: Dict[str, Dict[str, float]] = {
         "BTCUSDT": {"BUY": 0.0, "SELL": 0.0},
         "ETHUSDT": {"BUY": 0.0, "SELL": 0.0},
@@ -1526,10 +1523,7 @@ async def big_trades_dashboard(request: Request):
         "ETHUSDT": {"BUY": 0, "SELL": 0},
     }
 
-    # -----------------------------------------
     # 2) Largest BUY/SELL
-    # -----------------------------------------
-    # largest_trades[symbol][side] = {notional, price, qty, time_vn}
     largest_trades: Dict[str, Dict[str, Dict[str, Any]]] = {
         "BTCUSDT": {
             "BUY": {"notional": 0.0, "price": None, "qty": None, "time_vn": None},
@@ -1541,30 +1535,23 @@ async def big_trades_dashboard(request: Request):
         },
     }
 
-    # -----------------------------------------
     # 3) Buckets theo vùng giá
-    # -----------------------------------------
-    # buckets[symbol][bucket_index] = {
-    #   low, high, BUY, SELL, buy_count, sell_count
-    # }
     buckets: Dict[str, Dict[int, Dict[str, Any]]] = {
         "BTCUSDT": {},
         "ETHUSDT": {},
     }
 
-    # -----------------------------------------
-    # 4) Last trade (global cuối cùng giữa 2 symbol)
-    # -----------------------------------------
-    last_trade_dt_utc = None
-    last_trade: Dict[str, Any] | None = None
-
-    # -----------------------------------------
-    # 5) Exchange-level stats
-    # -----------------------------------------
-    # exchange_stats[symbol][exchange] = {buy, sell, buy_count, sell_count}
+    # 4) Exchange-level stats
     exchange_stats: Dict[str, Dict[str, Dict[str, Any]]] = {
         "BTCUSDT": {},
         "ETHUSDT": {},
+    }
+
+    # 5) Last 10 trades per symbol
+    # tạm thời lưu kèm dt_utc để sort
+    last_trades_map: Dict[str, List[Dict[str, Any]]] = {
+        "BTCUSDT": [],
+        "ETHUSDT": [],
     }
 
     for row in rows:
@@ -1576,7 +1563,6 @@ async def big_trades_dashboard(request: Request):
         if side not in ("BUY", "SELL"):
             continue
 
-        # Parse thời gian
         raw_time = row.get("trade_time")
         dt_utc, vn_str = _parse_utc_and_vn_time(raw_time)
 
@@ -1589,12 +1575,11 @@ async def big_trades_dashboard(request: Request):
 
         exchange = (row.get("exchange") or "Unknown").title()
 
-        # Tổng notional
+        # Tổng notional & count
         summary_notional[symbol][side] += notional
-        # Đếm số lệnh
         summary_counts[symbol][side] += 1
 
-        # Largest trade theo side
+        # Largest trade
         cur_largest = largest_trades[symbol][side]
         if notional > cur_largest["notional"]:
             largest_trades[symbol][side] = {
@@ -1621,7 +1606,6 @@ async def big_trades_dashboard(request: Request):
                 "sell_count": 0,
             }
 
-        # Cộng tiền & count theo bucket
         symbol_buckets[bucket_index][side] += notional
         if side == "BUY":
             symbol_buckets[bucket_index]["buy_count"] += 1
@@ -1644,11 +1628,11 @@ async def big_trades_dashboard(request: Request):
             sym_ex_stats[exchange]["sell"] += notional
             sym_ex_stats[exchange]["sell_count"] += 1
 
-        # Last trade (global)
+        # Last trades per symbol (sẽ sort sau)
         if dt_utc is not None:
-            if last_trade_dt_utc is None or dt_utc > last_trade_dt_utc:
-                last_trade_dt_utc = dt_utc
-                last_trade = {
+            last_trades_map[symbol].append(
+                {
+                    "dt_utc": dt_utc,
                     "symbol": symbol,
                     "side": side,
                     "price": price,
@@ -1657,10 +1641,9 @@ async def big_trades_dashboard(request: Request):
                     "exchange": exchange,
                     "time_vn": vn_str,
                 }
+            )
 
-    # -----------------------------------------
-    # 6) Summary view + %BUY/%SELL + largest
-    # -----------------------------------------
+    # 6) Summary view
     summary_view: Dict[str, Dict[str, Any]] = {}
     for sym in symbols:
         buy_val = summary_notional[sym]["BUY"]
@@ -1685,9 +1668,7 @@ async def big_trades_dashboard(request: Request):
             "largest_sell": largest_trades[sym]["SELL"],
         }
 
-    # -----------------------------------------
     # 7) Buckets view + data cho chart
-    # -----------------------------------------
     buckets_view: Dict[str, List[Dict[str, Any]]] = {}
     buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
 
@@ -1739,9 +1720,7 @@ async def big_trades_dashboard(request: Request):
             "sell_data": sell_data,
         }
 
-    # -----------------------------------------
-    # 8) Exchange summary view (dùng cho HTML)
-    # -----------------------------------------
+    # 8) Exchange summary
     exchange_summary: Dict[str, List[Dict[str, Any]]] = {}
     for sym in symbols:
         sym_ex = exchange_stats[sym]
@@ -1768,9 +1747,17 @@ async def big_trades_dashboard(request: Request):
                     "pct_sell": pct_sell,
                 }
             )
-        # sort theo tổng notional giảm dần
         rows_ex.sort(key=lambda r: r["total"], reverse=True)
         exchange_summary[sym] = rows_ex
+
+    # 9) Last 10 trades per symbol (sort theo dt_utc desc, bỏ dt_utc trước khi render)
+    last_trades_view: Dict[str, List[Dict[str, Any]]] = {}
+    for sym in symbols:
+        lst = last_trades_map[sym]
+        lst.sort(key=lambda x: x["dt_utc"], reverse=True)
+        for t in lst:
+            t.pop("dt_utc", None)
+        last_trades_view[sym] = lst[:10]
 
     context = {
         "request": request,
@@ -1779,7 +1766,7 @@ async def big_trades_dashboard(request: Request):
         "buckets": buckets_view,
         "buckets_chart": buckets_chart,
         "exchange_summary": exchange_summary,
-        "last_trade": last_trade,
+        "last_trades": last_trades_view,
         "from_time": since_utc,
         "to_time": now_utc,
     }
