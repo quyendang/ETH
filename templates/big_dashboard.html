@@ -42,7 +42,6 @@
     .header-title {
       font-size: 1.4rem;
       font-weight: 700;
-      letter-spacing: 0.02em;
       margin-bottom: 4px;
     }
 
@@ -89,7 +88,6 @@
     .stat-value { font-weight: 600; }
 
     .badge-buy {
-      display: inline-block;
       padding: 2px 8px;
       border-radius: 999px;
       background: rgba(34,197,94,.08);
@@ -99,7 +97,6 @@
     }
 
     .badge-sell {
-      display: inline-block;
       padding: 2px 8px;
       border-radius: 999px;
       background: rgba(239,68,68,.08);
@@ -121,7 +118,6 @@
       font-size: 0.95rem;
       font-weight: 600;
       margin-bottom: 10px;
-      color: var(--text-main);
       display: flex;
       justify-content: space-between;
       align-items: baseline;
@@ -130,24 +126,6 @@
     .panel-title span.sub {
       font-size: 0.8rem;
       color: var(--text-sub);
-      font-weight: 400;
-    }
-
-    .no-data {
-      margin-top: 24px;
-      font-size: 0.9rem;
-      color: var(--text-sub);
-    }
-
-    .sub-info {
-      font-size: 0.8rem;
-      color: var(--text-sub);
-      margin-top: 2px;
-    }
-
-    .chart-container {
-      width: 100%;
-      height: 320px;
     }
 
     table {
@@ -156,9 +134,7 @@
       font-size: 0.85rem;
     }
 
-    thead {
-      background: #f9fafb;
-    }
+    thead { background: #f9fafb; }
 
     th, td {
       padding: 6px 8px;
@@ -166,33 +142,38 @@
       text-align: right;
     }
 
-    th:first-child,
-    td:first-child {
-      text-align: left;
+    th:first-child, td:first-child { text-align: left; }
+
+    tbody tr:nth-child(even) { background: #f9fafb; }
+
+    .no-data {
+      margin-top: 16px;
+      color: var(--text-sub);
+      font-size: 0.9rem;
     }
 
-    tbody tr:nth-child(even) {
-      background: #f9fafb;
+    .chart-container {
+      width: 100%;
+      height: 320px;
     }
   </style>
 </head>
+
 <body>
   <div class="page">
     <header class="header">
       <div class="header-title">Big Orders Dashboard</div>
       <div class="header-sub">
-        Tổng hợp big trades BTCUSDT & ETHUSDT trong 7 ngày gần nhất.
-        {% if from_time and to_time %}
+        Big trades BTCUSDT & ETHUSDT trong 7 ngày gần nhất.
         <br />
+        {% if from_time and to_time %}
         <small>Window (UTC): {{ from_time }} → {{ to_time }}</small>
         {% endif %}
       </div>
     </header>
 
     {% if not has_data %}
-      <div class="no-data">
-        Chưa có dữ liệu big_trades trong window hoặc lỗi kết nối.
-      </div>
+      <div class="no-data">Không có dữ liệu.</div>
     {% else %}
 
     <!-- SUMMARY CARDS -->
@@ -201,7 +182,7 @@
       {% set s = summary.get(sym) %}
       <div class="card">
         <div class="card-title">{{ sym }}</div>
-        <div class="card-subtitle">Tổng giá trị & thống kê lệnh trong 7 ngày (USDT)</div>
+        <div class="card-subtitle">Thống kê BUY/SELL (7 ngày)</div>
 
         {% if s %}
         <div class="stat-row">
@@ -220,67 +201,53 @@
           </span>
         </div>
 
-        <div class="stat-row" style="margin-top:6px;">
-          <span class="stat-label">TOTAL</span>
-          <span class="stat-value">{{ s.total | comma }} USDT</span>
-        </div>
-
-        <div class="stat-row" style="margin-top:6px;">
+        <div class="stat-row" style="margin-top:8px;">
           <span class="stat-label">BUY orders</span>
           <span class="stat-value">{{ s.buy_count | comma }}</span>
         </div>
+
         <div class="stat-row">
           <span class="stat-label">SELL orders</span>
           <span class="stat-value">{{ s.sell_count | comma }}</span>
         </div>
 
-        {% set lb = s.largest_buy %}
-        {% set ls = s.largest_sell %}
-
-        <div class="stat-row" style="margin-top:8px;">
+        <div class="stat-row" style="margin-top:12px;">
           <span class="stat-label">Largest BUY</span>
-          {% if lb and lb.notional and lb.notional > 0 %}
-          <span class="stat-value">
-            {{ lb.notional | comma }} USDT
-          </span>
+          {% set lb = s.largest_buy %}
+          {% if lb.notional > 0 %}
+          <span class="stat-value">{{ lb.notional | comma }} USDT</span>
         </div>
-        <div class="sub-info">
-          Giá: {{ lb.price }} – Qty: {{ lb.qty }}<br />
-          Time (VN): {{ lb.time_vn }}
-        </div>
+        <div class="stat-row"><span>Giá:</span><span>{{ lb.price }}</span></div>
+        <div class="stat-row"><span>Qty:</span><span>{{ lb.qty }}</span></div>
+        <div class="stat-row"><span>Time:</span><span>{{ lb.time_vn }}</span></div>
         {% else %}
-          <span class="stat-value">No BUY trades</span>
+        <div class="stat-row">No BUY</div>
         {% endif %}
 
-        <div class="stat-row" style="margin-top:8px;">
+        <div class="stat-row" style="margin-top:12px;">
           <span class="stat-label">Largest SELL</span>
-          {% if ls and ls.notional and ls.notional > 0 %}
-          <span class="stat-value">
-            {{ ls.notional | comma }} USDT
-          </span>
+          {% set ls = s.largest_sell %}
+          {% if ls.notional > 0 %}
+          <span class="stat-value">{{ ls.notional | comma }} USDT</span>
         </div>
-        <div class="sub-info">
-          Giá: {{ ls.price }} – Qty: {{ ls.qty }}<br />
-          Time (VN): {{ ls.time_vn }}
-        </div>
+        <div class="stat-row"><span>Giá:</span><span>{{ ls.price }}</span></div>
+        <div class="stat-row"><span>Qty:</span><span>{{ ls.qty }}</span></div>
+        <div class="stat-row"><span>Time:</span><span>{{ ls.time_vn }}</span></div>
         {% else %}
-          <span class="stat-value">No SELL trades</span>
+        <div class="stat-row">No SELL</div>
         {% endif %}
-
-        {% else %}
-        <div class="stat-row"><span>No data</span></div>
         {% endif %}
       </div>
       {% endfor %}
     </section>
 
-    <!-- LAST 10 BIG ORDERS PER SYMBOL -->
+    <!-- LAST 10 BIG ORDERS -->
     {% for sym in ["BTCUSDT", "ETHUSDT"] %}
     {% set lt = last_trades.get(sym) %}
     <section class="panel">
       <div class="panel-title">
         <div>Last 10 Big Orders – {{ sym }}</div>
-        <span class="sub">Sắp xếp theo thời gian mới nhất (giờ VN)</span>
+        <span class="sub">Giờ VN</span>
       </div>
 
       {% if lt and lt|length > 0 %}
@@ -292,7 +259,7 @@
             <th>Exchange</th>
             <th>Price</th>
             <th>Qty</th>
-            <th>Notional (USDT)</th>
+            <th>Notional</th>
           </tr>
         </thead>
         <tbody>
@@ -309,7 +276,7 @@
         </tbody>
       </table>
       {% else %}
-      <div class="no-data">Không có big orders cho {{ sym }} trong 7 ngày.</div>
+      <div class="no-data">Không có data.</div>
       {% endif %}
     </section>
     {% endfor %}
@@ -320,21 +287,15 @@
     <section class="panel">
       <div class="panel-title">
         <div>{{ sym }} – Big trades theo vùng giá</div>
-        <span class="sub">
-          {% if sym == "BTCUSDT" %}
-            Mỗi vùng 500 USDT
-          {% else %}
-            Mỗi vùng 50 USDT
-          {% endif %}
-        </span>
+        <span class="sub">{% if sym == "BTCUSDT" %}500$ mỗi vùng{% else %}50$ mỗi vùng{% endif %}</span>
       </div>
 
-      {% if chart && chart.labels && chart.labels|length > 0 %}
+      {% if chart and chart.labels and chart.labels|length > 0 %}
       <div class="chart-container">
         <canvas id="chart_{{ sym }}"></canvas>
       </div>
       {% else %}
-      <div class="no-data">Không có big trades cho {{ sym }} trong window.</div>
+      <div class="no-data">Không có dữ liệu.</div>
       {% endif %}
     </section>
     {% endfor %}
@@ -345,7 +306,7 @@
     <section class="panel">
       <div class="panel-title">
         <div>{{ sym }} – Volume theo sàn</div>
-        <span class="sub">BUY/SELL theo exchange trong 7 ngày</span>
+        <span class="sub">7 ngày</span>
       </div>
 
       {% if ex_rows and ex_rows|length > 0 %}
@@ -353,9 +314,9 @@
         <thead>
           <tr>
             <th>Exchange</th>
-            <th>BUY (USDT)</th>
-            <th>SELL (USDT)</th>
-            <th>TOTAL (USDT)</th>
+            <th>BUY</th>
+            <th>SELL</th>
+            <th>TOTAL</th>
             <th>BUY orders</th>
             <th>SELL orders</th>
             <th>%BUY</th>
@@ -378,7 +339,7 @@
         </tbody>
       </table>
       {% else %}
-      <div class="no-data">Không có dữ liệu exchange cho {{ sym }}.</div>
+      <div class="no-data">Không có exchange data.</div>
       {% endif %}
     </section>
     {% endfor %}
@@ -397,24 +358,20 @@
       const ctx = document.getElementById("chart_" + sym);
       if (!ctx) return;
 
-      const labels = dataObj.labels;
-      const buyData = dataObj.buy_data;
-      const sellData = dataObj.sell_data;
-
       new Chart(ctx, {
         type: "bar",
         data: {
-          labels: labels,
+          labels: dataObj.labels,
           datasets: [
             {
               label: "BUY (USDT)",
-              data: buyData,
-              backgroundColor: "rgba(34, 197, 94, 0.7)",
+              data: dataObj.buy_data,
+              backgroundColor: "rgba(34,197,94,0.7)",
             },
             {
               label: "SELL (USDT)",
-              data: sellData,
-              backgroundColor: "rgba(239, 68, 68, 0.7)",
+              data: dataObj.sell_data,
+              backgroundColor: "rgba(239,68,68,0.7)",
             }
           ]
         },
@@ -424,25 +381,17 @@
           maintainAspectRatio: false,
           scales: {
             x: {
-              title: { display: true, text: "Notional (USDT)" },
-              ticks: {
-                callback: function(value) {
-                  return value.toLocaleString();
-                }
-              }
+              ticks: { callback: v => v.toLocaleString() },
+              title: { display: true, text: "Notional (USDT)" }
             },
-            y: {
-              title: { display: true, text: "Vùng giá" }
-            }
+            y: { title: { display: true, text: "Vùng giá" } }
           },
           plugins: {
-            legend: { position: "top" },
             tooltip: {
               callbacks: {
-                label: function(ctx) {
-                  const val = ctx.parsed.x || 0;
-                  const label = ctx.dataset.label || "";
-                  return label + ": " + val.toLocaleString() + " USDT";
+                label: ctx => {
+                  const v = ctx.parsed.x || 0;
+                  return ctx.dataset.label + ": " + v.toLocaleString() + " USDT";
                 }
               }
             }
