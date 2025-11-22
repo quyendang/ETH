@@ -145,20 +145,6 @@
       margin-top: 2px;
     }
 
-    .last-trade {
-      font-size: 0.9rem;
-      margin-top: 8px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: #eef2ff;
-    }
-
-    .last-trade-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
     .chart-container {
       width: 100%;
       height: 320px;
@@ -201,18 +187,6 @@
         <small>Window (UTC): {{ from_time }} → {{ to_time }}</small>
         {% endif %}
       </div>
-
-      {% if last_trade %}
-      <div class="last-trade">
-        <div class="last-trade-title">Last Big Order (7 ngày gần nhất, giờ VN)</div>
-        <div>Symbol: <strong>{{ last_trade.symbol }}</strong></div>
-        <div>Side: <strong>{{ last_trade.side }}</strong></div>
-        <div>Exchange: <strong>{{ last_trade.exchange }}</strong></div>
-        <div>Notional: <strong>{{ last_trade.notional | comma }} USDT</strong></div>
-        <div>Giá: <strong>{{ last_trade.price }}</strong> – Qty: <strong>{{ last_trade.qty }}</strong></div>
-        <div>Time: <strong>{{ last_trade.time_vn }}</strong></div>
-      </div>
-      {% endif %}
     </header>
 
     {% if not has_data %}
@@ -230,7 +204,6 @@
         <div class="card-subtitle">Tổng giá trị & thống kê lệnh trong 7 ngày (USDT)</div>
 
         {% if s %}
-        <!-- Tổng giá trị BUY / SELL -->
         <div class="stat-row">
           <span class="stat-label">BUY total</span>
           <span class="stat-value">
@@ -252,7 +225,6 @@
           <span class="stat-value">{{ s.total | comma }} USDT</span>
         </div>
 
-        <!-- Đếm số lệnh -->
         <div class="stat-row" style="margin-top:6px;">
           <span class="stat-label">BUY orders</span>
           <span class="stat-value">{{ s.buy_count | comma }}</span>
@@ -262,7 +234,6 @@
           <span class="stat-value">{{ s.sell_count | comma }}</span>
         </div>
 
-        <!-- Largest BUY / SELL -->
         {% set lb = s.largest_buy %}
         {% set ls = s.largest_sell %}
 
@@ -303,7 +274,47 @@
       {% endfor %}
     </section>
 
-    <!-- BUCKET CHARTS (horizontal bar) -->
+    <!-- LAST 10 BIG ORDERS PER SYMBOL -->
+    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
+    {% set lt = last_trades.get(sym) %}
+    <section class="panel">
+      <div class="panel-title">
+        <div>Last 10 Big Orders – {{ sym }}</div>
+        <span class="sub">Sắp xếp theo thời gian mới nhất (giờ VN)</span>
+      </div>
+
+      {% if lt and lt|length > 0 %}
+      <table>
+        <thead>
+          <tr>
+            <th>Time (VN)</th>
+            <th>Side</th>
+            <th>Exchange</th>
+            <th>Price</th>
+            <th>Qty</th>
+            <th>Notional (USDT)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in lt %}
+          <tr>
+            <td>{{ t.time_vn }}</td>
+            <td>{{ t.side }}</td>
+            <td>{{ t.exchange }}</td>
+            <td>{{ t.price }}</td>
+            <td>{{ t.qty }}</td>
+            <td>{{ t.notional | comma }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="no-data">Không có big orders cho {{ sym }} trong 7 ngày.</div>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    <!-- BUCKET CHARTS -->
     {% for sym in ["BTCUSDT", "ETHUSDT"] %}
     {% set chart = buckets_chart.get(sym) %}
     <section class="panel">
@@ -318,7 +329,7 @@
         </span>
       </div>
 
-      {% if chart and chart.labels and chart.labels|length > 0 %}
+      {% if chart && chart.labels && chart.labels|length > 0 %}
       <div class="chart-container">
         <canvas id="chart_{{ sym }}"></canvas>
       </div>
@@ -413,10 +424,7 @@
           maintainAspectRatio: false,
           scales: {
             x: {
-              title: {
-                display: true,
-                text: "Notional (USDT)"
-              },
+              title: { display: true, text: "Notional (USDT)" },
               ticks: {
                 callback: function(value) {
                   return value.toLocaleString();
@@ -424,16 +432,11 @@
               }
             },
             y: {
-              title: {
-                display: true,
-                text: "Vùng giá"
-              }
+              title: { display: true, text: "Vùng giá" }
             }
           },
           plugins: {
-            legend: {
-              position: "top"
-            },
+            legend: { position: "top" },
             tooltip: {
               callbacks: {
                 label: function(ctx) {
