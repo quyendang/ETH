@@ -1464,7 +1464,6 @@ async def big_trades_dashboard(request: Request):
     - Last 10 big orders cho từng symbol (giờ VN)
     - Buckets theo vùng giá + Horizontal Bar Chart
     - Thống kê BUY/SELL theo từng sàn (exchange)
-    - HIỂN THỊ THÊM GIÁ HIỆN TẠI CỦA BTC/ETH
     """
     symbols = ["BTCUSDT", "ETHUSDT"]
 
@@ -1480,14 +1479,13 @@ async def big_trades_dashboard(request: Request):
             "last_trades": {},
             "from_time": None,
             "to_time": None,
-            "current_prices": {},
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
     since_utc = now_utc - timedelta(days=3)
 
-    # Lấy dữ liệu big_trades 7 ngày gần nhất
+    # Lấy dữ liệu 7 ngày gần nhất
     try:
         resp = (
             supabase_admin.table("big_trades")
@@ -1501,11 +1499,6 @@ async def big_trades_dashboard(request: Request):
         logging.error(f"[BIG_TRADES] Error fetch big_trades: {e}")
         rows = []
 
-    # Lấy giá hiện tại BTC/ETH (spot Binance)
-    current_prices: Dict[str, float | None] = {}
-    for sym in symbols:
-        current_prices[sym] = await _get_binance_last_price(sym)
-
     if not rows:
         context = {
             "request": request,
@@ -1517,7 +1510,6 @@ async def big_trades_dashboard(request: Request):
             "last_trades": {},
             "from_time": since_utc,
             "to_time": now_utc,
-            "current_prices": current_prices,
         }
         return templates.TemplateResponse("big_dashboard.html", context)
 
@@ -1556,6 +1548,7 @@ async def big_trades_dashboard(request: Request):
     }
 
     # 5) Last 10 trades per symbol
+    # tạm thời lưu kèm dt_utc để sort
     last_trades_map: Dict[str, List[Dict[str, Any]]] = {
         "BTCUSDT": [],
         "ETHUSDT": [],
@@ -1617,7 +1610,7 @@ async def big_trades_dashboard(request: Request):
         if side == "BUY":
             symbol_buckets[bucket_index]["buy_count"] += 1
         else:
-            symbol_buckets[symbol][bucket_index]["sell_count"] += 1
+            symbol_buckets[bucket_index]["sell_count"] += 1
 
         # Exchange-level stats
         sym_ex_stats = exchange_stats[symbol]
@@ -1635,7 +1628,7 @@ async def big_trades_dashboard(request: Request):
             sym_ex_stats[exchange]["sell"] += notional
             sym_ex_stats[exchange]["sell_count"] += 1
 
-        # Last trades per symbol
+        # Last trades per symbol (sẽ sort sau)
         if dt_utc is not None:
             last_trades_map[symbol].append(
                 {
@@ -1675,17 +1668,23 @@ async def big_trades_dashboard(request: Request):
             "largest_sell": largest_trades[sym]["SELL"],
         }
 
-    # 7) Buckets view + data cho chart
+   # 7) Buckets view + data cho chart
     buckets_view: Dict[str, List[Dict[str, Any]]] = {}
     buckets_chart: Dict[str, Dict[str, List[Any]]] = {}
-
+    
     for sym in symbols:
         sym_buckets = buckets[sym]
         if not sym_buckets:
             buckets_view[sym] = []
-            buckets_chart[sym] = {"labels": [], "buy_data": [], "sell_data": []}
+            buckets_chart[sym] = {
+                "labels": [],
+                "buy_data": [],
+                "sell_data": [],
+                "buy_counts": [],
+                "sell_counts": [],
+            }
             continue
-
+    
         rows_list: List[Dict[str, Any]] = []
         for idx, info in sym_buckets.items():
             low = info["low"]
@@ -1695,14 +1694,13 @@ async def big_trades_dashboard(request: Request):
             total = buy_val + sell_val
             buy_count = info["buy_count"]
             sell_count = info["sell_count"]
-
-            if buy_val > sell_val:
-                dominance = "BUY"
-            elif sell_val > buy_val:
-                dominance = "SELL"
-            else:
-                dominance = "BALANCED"
-
+    
+            dominance = (
+                "BUY" if buy_val > sell_val
+                else "SELL" if sell_val > buy_val
+                else "BALANCED"
+            )
+    
             rows_list.append(
                 {
                     "range_str": f"{low:.0f} – {high:.0f}",
@@ -1714,18 +1712,24 @@ async def big_trades_dashboard(request: Request):
                     "sell_count": sell_count,
                 }
             )
-
+    
         rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
         buckets_view[sym] = rows_list
-
+    
         labels = [r["range_str"] for r in rows_list]
         buy_data = [r["buy"] for r in rows_list]
         sell_data = [r["sell"] for r in rows_list]
+        buy_counts = [r["buy_count"] for r in rows_list]
+        sell_counts = [r["sell_count"] for r in rows_list]
+    
         buckets_chart[sym] = {
             "labels": labels,
             "buy_data": buy_data,
             "sell_data": sell_data,
+            "buy_counts": buy_counts,
+            "sell_counts": sell_counts,
         }
+
 
     # 8) Exchange summary
     exchange_summary: Dict[str, List[Dict[str, Any]]] = {}
@@ -1757,7 +1761,7 @@ async def big_trades_dashboard(request: Request):
         rows_ex.sort(key=lambda r: r["total"], reverse=True)
         exchange_summary[sym] = rows_ex
 
-    # 9) Last 10 trades per symbol
+    # 9) Last 10 trades per symbol (sort theo dt_utc desc, bỏ dt_utc trước khi render)
     last_trades_view: Dict[str, List[Dict[str, Any]]] = {}
     for sym in symbols:
         lst = last_trades_map[sym]
@@ -1776,7 +1780,6 @@ async def big_trades_dashboard(request: Request):
         "last_trades": last_trades_view,
         "from_time": since_utc,
         "to_time": now_utc,
-        "current_prices": current_prices,
     }
     return templates.TemplateResponse("big_dashboard.html", context)
 
