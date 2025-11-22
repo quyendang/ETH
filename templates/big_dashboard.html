@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Big Orders Dashboard</title>
+  <title>Big Trades Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Chart.js + DataLabels -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 
   <style>
     :root {
@@ -36,11 +39,11 @@
     }
 
     .header {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
 
     .header-title {
-      font-size: 1.4rem;
+      font-size: 1.6rem;
       font-weight: 700;
       margin-bottom: 4px;
     }
@@ -50,11 +53,26 @@
       color: var(--text-sub);
     }
 
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 24px 0 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .section-sub {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+      font-weight: 400;
+    }
+
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 12px;
-      margin: 16px 0 24px;
+      margin-bottom: 8px;
     }
 
     .card {
@@ -65,59 +83,74 @@
       box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
     }
 
-    .card-title {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-
-    .card-subtitle {
-      font-size: 0.8rem;
-      color: var(--text-sub);
-      margin-bottom: 6px;
-    }
-
-    .stat-row {
+    .card-header {
       display: flex;
       justify-content: space-between;
-      font-size: 0.9rem;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .card-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-sub);
+    }
+
+    .badge-symbol {
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .card-main {
+      font-size: 1.05rem;
+      font-weight: 600;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .card-sub {
+      font-size: 0.82rem;
+      color: var(--text-sub);
       margin-top: 2px;
     }
 
-    .stat-label { color: var(--text-sub); }
-    .stat-value { font-weight: 600; }
-
-    .badge-buy {
+    .pill {
       padding: 2px 8px;
       border-radius: 999px;
-      background: rgba(34,197,94,.08);
-      color: var(--green);
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 600;
+      color: #fff;
     }
 
-    .badge-sell {
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: rgba(239,68,68,.08);
-      color: var(--red);
-      font-size: 0.8rem;
-      font-weight: 600;
+    .pill-buy  { background: var(--green); }
+    .pill-sell { background: var(--red);   }
+    .pill-neutral { background: #6b7280; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 16px;
+      margin-top: 12px;
     }
 
     .panel {
       background: var(--card-bg);
       border-radius: 16px;
-      padding: 16px 16px 20px;
+      padding: 12px 14px 16px;
       border: 1px solid var(--border);
-      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-      margin-bottom: 18px;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
     }
 
     .panel-title {
       font-size: 0.95rem;
       font-weight: 600;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       display: flex;
       justify-content: space-between;
       align-items: baseline;
@@ -126,272 +159,396 @@
     .panel-title span.sub {
       font-size: 0.8rem;
       color: var(--text-sub);
+      font-weight: 400;
+    }
+
+    .list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.84rem;
+      color: var(--text-sub);
+    }
+
+    .list li + li {
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px dotted var(--muted);
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
     }
 
-    thead { background: #f9fafb; }
-
     th, td {
-      padding: 6px 8px;
-      border-bottom: 1px solid var(--border);
+      padding: 6px 4px;
+      border-bottom: 1px solid var(--muted);
       text-align: right;
     }
 
-    th:first-child, td:first-child { text-align: left; }
-
-    tbody tr:nth-child(even) { background: #f9fafb; }
-
-    .no-data {
-      margin-top: 16px;
-      color: var(--text-sub);
-      font-size: 0.9rem;
+    th:first-child, td:first-child {
+      text-align: left;
     }
 
+    th {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-sub);
+      background: #f8fafc;
+    }
+
+    .text-buy  { color: var(--green); }
+    .text-sell { color: var(--red);   }
+
     .chart-container {
+      position: relative;
       width: 100%;
-      height: 320px;
+      height: 360px;
+      margin-top: 8px;
+    }
+
+    .muted {
+      color: var(--text-sub);
+      font-size: 0.8rem;
     }
   </style>
 </head>
-
 <body>
   <div class="page">
     <header class="header">
-      <div class="header-title">Big Orders Dashboard</div>
+      <div class="header-title">Big Trades Dashboard</div>
       <div class="header-sub">
-        Big trades BTCUSDT & ETHUSDT trong 7 ngày gần nhất.
-        <br />
-        {% if from_time and to_time %}
-        <small>Window (UTC): {{ from_time }} → {{ to_time }}</small>
-        {% endif %}
+        Thống kê big orders BTC/ETH (window: {{ (to_time - from_time).days }} ngày gần nhất).
       </div>
     </header>
 
     {% if not has_data %}
-      <div class="no-data">Không có dữ liệu.</div>
+      <p class="muted">Không có dữ liệu big_trades trong khoảng thời gian này.</p>
     {% else %}
 
-    <!-- SUMMARY CARDS -->
-    <section class="cards">
-      {% for sym in ["BTCUSDT", "ETHUSDT"] %}
-      {% set s = summary.get(sym) %}
-      <div class="card">
-        <div class="card-title">{{ sym }}</div>
-        <div class="card-subtitle">Thống kê BUY/SELL (7 ngày)</div>
+      {% set symbols = ["BTCUSDT", "ETHUSDT"] %}
 
-        {% if s %}
-        <div class="stat-row">
-          <span class="stat-label">BUY total</span>
-          <span class="stat-value">
-            {{ s.buy | comma }} USDT
-            <span class="badge-buy">{{ "%.1f"|format(s.pct_buy) }}%</span>
-          </span>
-        </div>
+      {% for sym in symbols %}
+        {% set s = summary.get(sym) %}
+        <section style="margin-top: 20px;">
+          <div class="section-title">
+            <span>{{ sym }} Overview</span>
+            <span class="section-sub">
+              BUY/SELL notional &amp; lệnh trong {{ (to_time - from_time).days }} ngày gần nhất
+            </span>
+          </div>
 
-        <div class="stat-row">
-          <span class="stat-label">SELL total</span>
-          <span class="stat-value">
-            {{ s.sell | comma }} USDT
-            <span class="badge-sell">{{ "%.1f"|format(s.pct_sell) }}%</span>
-          </span>
-        </div>
+          <!-- SUMMARY CARDS -->
+          <div class="cards">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-label">Tổng BUY</div>
+                <span class="badge-symbol">{{ sym }}</span>
+              </div>
+              <div class="card-main text-buy">
+                {% if s %}
+                  <span>{{ '{:,.0f}'.format(s.buy) }} USDT</span>
+                {% else %}
+                  <span>0 USDT</span>
+                {% endif %}
+              </div>
+              <div class="card-sub">
+                {% if s %}
+                  {{ '{:,.2f}'.format(s.pct_buy) }}% tổng volume ({{ s.buy_count }} orders)
+                {% else %}
+                  0% tổng volume
+                {% endif %}
+              </div>
+            </div>
 
-        <div class="stat-row" style="margin-top:8px;">
-          <span class="stat-label">BUY orders</span>
-          <span class="stat-value">{{ s.buy_count | comma }}</span>
-        </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-label">Tổng SELL</div>
+                <span class="badge-symbol">{{ sym }}</span>
+              </div>
+              <div class="card-main text-sell">
+                {% if s %}
+                  <span>{{ '{:,.0f}'.format(s.sell) }} USDT</span>
+                {% else %}
+                  <span>0 USDT</span>
+                {% endif %}
+              </div>
+              <div class="card-sub">
+                {% if s %}
+                  {{ '{:,.2f}'.format(s.pct_sell) }}% tổng volume ({{ s.sell_count }} orders)
+                {% else %}
+                  0% tổng volume
+                {% endif %}
+              </div>
+            </div>
 
-        <div class="stat-row">
-          <span class="stat-label">SELL orders</span>
-          <span class="stat-value">{{ s.sell_count | comma }}</span>
-        </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-label">Largest BUY</div>
+                <span class="badge-symbol">{{ sym }}</span>
+              </div>
+              {% set lb = s.largest_buy if s else None %}
+              <div class="card-main text-buy">
+                {% if lb and lb.notional > 0 %}
+                  <span>{{ '{:,.0f}'.format(lb.notional) }} USDT</span>
+                {% else %}
+                  <span>–</span>
+                {% endif %}
+              </div>
+              <div class="card-sub">
+                {% if lb and lb.notional > 0 %}
+                  Giá: {{ '{:,.2f}'.format(lb.price) }} – Qty: {{ lb.qty }}<br />
+                  Time: {{ lb.time_vn }}
+                {% else %}
+                  Không có dữ liệu
+                {% endif %}
+              </div>
+            </div>
 
-        <div class="stat-row" style="margin-top:12px;">
-          <span class="stat-label">Largest BUY</span>
-          {% set lb = s.largest_buy %}
-          {% if lb.notional > 0 %}
-          <span class="stat-value">{{ lb.notional | comma }} USDT</span>
-        </div>
-        <div class="stat-row"><span>Giá:</span><span>{{ lb.price }}</span></div>
-        <div class="stat-row"><span>Qty:</span><span>{{ lb.qty }}</span></div>
-        <div class="stat-row"><span>Time:</span><span>{{ lb.time_vn }}</span></div>
-        {% else %}
-        <div class="stat-row">No BUY</div>
-        {% endif %}
+            <div class="card">
+              <div class="card-header">
+                <div class="card-label">Largest SELL</div>
+                <span class="badge-symbol">{{ sym }}</span>
+              </div>
+              {% set ls = s.largest_sell if s else None %}
+              <div class="card-main text-sell">
+                {% if ls and ls.notional > 0 %}
+                  <span>{{ '{:,.0f}'.format(ls.notional) }} USDT</span>
+                {% else %}
+                  <span>–</span>
+                {% endif %}
+              </div>
+              <div class="card-sub">
+                {% if ls and ls.notional > 0 %}
+                  Giá: {{ '{:,.2f}'.format(ls.price) }} – Qty: {{ ls.qty }}<br />
+                  Time: {{ ls.time_vn }}
+                {% else %}
+                  Không có dữ liệu
+                {% endif %}
+              </div>
+            </div>
+          </div>
 
-        <div class="stat-row" style="margin-top:12px;">
-          <span class="stat-label">Largest SELL</span>
-          {% set ls = s.largest_sell %}
-          {% if ls.notional > 0 %}
-          <span class="stat-value">{{ ls.notional | comma }} USDT</span>
-        </div>
-        <div class="stat-row"><span>Giá:</span><span>{{ ls.price }}</span></div>
-        <div class="stat-row"><span>Qty:</span><span>{{ ls.qty }}</span></div>
-        <div class="stat-row"><span>Time:</span><span>{{ ls.time_vn }}</span></div>
-        {% else %}
-        <div class="stat-row">No SELL</div>
-        {% endif %}
-        {% endif %}
-      </div>
+          <!-- LAST 10 BIG ORDERS & EXCHANGE STATS -->
+          <div class="grid-2">
+            <div class="panel">
+              <div class="panel-title">
+                <span>Last 10 big orders ({{ sym }})</span>
+                <span class="sub">Sắp xếp mới nhất &rarr; cũ</span>
+              </div>
+              {% set lt = last_trades.get(sym) or [] %}
+              {% if lt %}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time (VN)</th>
+                      <th>Side</th>
+                      <th>Price</th>
+                      <th>Qty</th>
+                      <th>Notional</th>
+                      <th>Exchange</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for t in lt %}
+                      <tr>
+                        <td>{{ t.time_vn }}</td>
+                        <td class="{{ 'text-buy' if t.side == 'BUY' else 'text-sell' }}">
+                          {{ t.side }}
+                        </td>
+                        <td>{{ '{:,.2f}'.format(t.price) }}</td>
+                        <td>{{ t.qty }}</td>
+                        <td>{{ '{:,.0f}'.format(t.notional) }}</td>
+                        <td>{{ t.exchange }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <p class="muted">Không có big orders cho {{ sym }}.</p>
+              {% endif %}
+            </div>
+
+            <div class="panel">
+              <div class="panel-title">
+                <span>Volume theo sàn ({{ sym }})</span>
+                <span class="sub">BUY/SELL &amp; số lệnh</span>
+              </div>
+              {% set exrows = exchange_summary.get(sym) or [] %}
+              {% if exrows %}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Exchange</th>
+                      <th>BUY</th>
+                      <th>SELL</th>
+                      <th>Total</th>
+                      <th>Orders</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for r in exrows %}
+                      <tr>
+                        <td>{{ r.exchange }}</td>
+                        <td class="text-buy">
+                          {{ '{:,.0f}'.format(r.buy) }}
+                          <span class="muted">({{ r.buy_count }})</span>
+                        </td>
+                        <td class="text-sell">
+                          {{ '{:,.0f}'.format(r.sell) }}
+                          <span class="muted">({{ r.sell_count }})</span>
+                        </td>
+                        <td>{{ '{:,.0f}'.format(r.total) }}</td>
+                        <td>{{ r.buy_count + r.sell_count }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <p class="muted">Không có dữ liệu theo sàn.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- BUCKETS HORIZONTAL BAR CHART -->
+          <div class="panel" style="margin-top: 16px;">
+            <div class="panel-title">
+              <span>Big trades theo vùng giá ({{ sym }})</span>
+              <span class="sub">
+                BUY bên trái, SELL bên phải – đơn vị: USDT (label hiển thị USDT &amp; số lệnh)
+              </span>
+            </div>
+            <div class="chart-container">
+              <canvas id="chart_{{ sym }}"></canvas>
+            </div>
+          </div>
+        </section>
       {% endfor %}
-    </section>
-
-    <!-- LAST 10 BIG ORDERS -->
-    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
-    {% set lt = last_trades.get(sym) %}
-    <section class="panel">
-      <div class="panel-title">
-        <div>Last 10 Big Orders – {{ sym }}</div>
-        <span class="sub">Giờ VN</span>
-      </div>
-
-      {% if lt and lt|length > 0 %}
-      <table>
-        <thead>
-          <tr>
-            <th>Time (VN)</th>
-            <th>Side</th>
-            <th>Exchange</th>
-            <th>Price</th>
-            <th>Qty</th>
-            <th>Notional</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in lt %}
-          <tr>
-            <td>{{ t.time_vn }}</td>
-            <td>{{ t.side }}</td>
-            <td>{{ t.exchange }}</td>
-            <td>{{ t.price }}</td>
-            <td>{{ t.qty }}</td>
-            <td>{{ t.notional | comma }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <div class="no-data">Không có data.</div>
-      {% endif %}
-    </section>
-    {% endfor %}
-
-    <!-- BUCKET CHARTS -->
-    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
-    {% set chart = buckets_chart.get(sym) %}
-    <section class="panel">
-      <div class="panel-title">
-        <div>{{ sym }} – Big trades theo vùng giá</div>
-        <span class="sub">{% if sym == "BTCUSDT" %}500$ mỗi vùng{% else %}50$ mỗi vùng{% endif %}</span>
-      </div>
-
-      {% if chart and chart.labels and chart.labels|length > 0 %}
-      <div class="chart-container">
-        <canvas id="chart_{{ sym }}"></canvas>
-      </div>
-      {% else %}
-      <div class="no-data">Không có dữ liệu.</div>
-      {% endif %}
-    </section>
-    {% endfor %}
-
-    <!-- EXCHANGE SUMMARY -->
-    {% for sym in ["BTCUSDT", "ETHUSDT"] %}
-    {% set ex_rows = exchange_summary.get(sym) %}
-    <section class="panel">
-      <div class="panel-title">
-        <div>{{ sym }} – Volume theo sàn</div>
-        <span class="sub">7 ngày</span>
-      </div>
-
-      {% if ex_rows and ex_rows|length > 0 %}
-      <table>
-        <thead>
-          <tr>
-            <th>Exchange</th>
-            <th>BUY</th>
-            <th>SELL</th>
-            <th>TOTAL</th>
-            <th>BUY orders</th>
-            <th>SELL orders</th>
-            <th>%BUY</th>
-            <th>%SELL</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in ex_rows %}
-          <tr>
-            <td>{{ r.exchange }}</td>
-            <td>{{ r.buy | comma }}</td>
-            <td>{{ r.sell | comma }}</td>
-            <td>{{ r.total | comma }}</td>
-            <td>{{ r.buy_count | comma }}</td>
-            <td>{{ r.sell_count | comma }}</td>
-            <td>{{ "%.1f"|format(r.pct_buy) }}%</td>
-            <td>{{ "%.1f"|format(r.pct_sell) }}%</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% else %}
-      <div class="no-data">Không có exchange data.</div>
-      {% endif %}
-    </section>
-    {% endfor %}
 
     {% endif %}
   </div>
 
+  {% if has_data %}
   <script>
+    // Dữ liệu buckets từ backend
     const bucketsChart = {{ buckets_chart | tojson }};
-    const symbols = ["BTCUSDT", "ETHUSDT"];
 
-    symbols.forEach(sym => {
+    // symbols trong template
+    const symbols = {{ ["BTCUSDT", "ETHUSDT"] | tojson }};
+
+    Chart.register(ChartDataLabels);
+
+    symbols.forEach((sym) => {
       const dataObj = bucketsChart[sym];
       if (!dataObj || !dataObj.labels || dataObj.labels.length === 0) return;
 
       const ctx = document.getElementById("chart_" + sym);
       if (!ctx) return;
 
+      const labels      = dataObj.labels;
+      const buyNotional = dataObj.buy_data || [];
+      const sellNotional= dataObj.sell_data || [];
+      const buyCounts   = dataObj.buy_counts || [];
+      const sellCounts  = dataObj.sell_counts || [];
+
+      // BUY nằm bên trái → dùng giá trị âm trên trục x
+      const buyValuesForChart  = buyNotional.map(v => -v);
+      const sellValuesForChart = sellNotional.map(v => v);
+
       new Chart(ctx, {
         type: "bar",
         data: {
-          labels: dataObj.labels,
+          labels: labels,
           datasets: [
             {
               label: "BUY (USDT)",
-              data: dataObj.buy_data,
+              data: buyValuesForChart,
               backgroundColor: "rgba(34,197,94,0.7)",
+              datalabels: {
+                anchor: "end",
+                align: "left",
+                color: "#0f172a",
+                font: { size: 10, weight: "600" },
+                formatter: (value, context) => {
+                  const idx = context.dataIndex;
+                  const usdt = Math.abs(buyNotional[idx] || 0);
+                  const cnt  = buyCounts[idx] || 0;
+                  if (!usdt && !cnt) return "";
+                  return usdt.toLocaleString() + " (" + cnt + " orders)";
+                }
+              }
             },
             {
               label: "SELL (USDT)",
-              data: dataObj.sell_data,
+              data: sellValuesForChart,
               backgroundColor: "rgba(239,68,68,0.7)",
+              datalabels: {
+                anchor: "end",
+                align: "right",
+                color: "#0f172a",
+                font: { size: 10, weight: "600" },
+                formatter: (value, context) => {
+                  const idx = context.dataIndex;
+                  const usdt = sellNotional[idx] || 0;
+                  const cnt  = sellCounts[idx] || 0;
+                  if (!usdt && !cnt) return "";
+                  return usdt.toLocaleString() + " (" + cnt + " orders)";
+                }
+              }
             }
           ]
         },
         options: {
-          indexAxis: "y",
+          indexAxis: "y", // horizontal
           responsive: true,
           maintainAspectRatio: false,
           scales: {
             x: {
-              ticks: { callback: v => v.toLocaleString() },
-              title: { display: true, text: "Notional (USDT)" }
+              ticks: {
+                callback: (value) => {
+                  return Math.abs(value).toLocaleString();
+                }
+              },
+              title: {
+                display: true,
+                text: "Notional (USDT)"
+              },
+              grid: { drawBorder: false }
             },
-            y: { title: { display: true, text: "Vùng giá" } }
+            y: {
+              title: {
+                display: true,
+                text: "Vùng giá"
+              },
+              grid: { drawBorder: false }
+            }
           },
           plugins: {
+            legend: {
+              position: "top"
+            },
             tooltip: {
               callbacks: {
-                label: ctx => {
-                  const v = ctx.parsed.x || 0;
-                  return ctx.dataset.label + ": " + v.toLocaleString() + " USDT";
+                label: (context) => {
+                  const idx = context.dataIndex;
+                  const dsLabel = context.dataset.label || "";
+                  let usdt = 0;
+                  let cnt  = 0;
+
+                  if (dsLabel.startsWith("BUY")) {
+                    usdt = buyNotional[idx] || 0;
+                    cnt  = buyCounts[idx] || 0;
+                  } else {
+                    usdt = sellNotional[idx] || 0;
+                    cnt  = sellCounts[idx] || 0;
+                  }
+
+                  return dsLabel + ": " +
+                         usdt.toLocaleString() + " USDT (" +
+                         cnt + " orders)";
                 }
               }
             }
@@ -400,5 +557,6 @@
       });
     });
   </script>
+  {% endif %}
 </body>
 </html>
