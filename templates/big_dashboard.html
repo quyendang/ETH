@@ -7,6 +7,9 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+
 
   <style>
     :root {
@@ -461,13 +464,13 @@
     });
   });
 
-  // ===== 2. Bubble Chart BUY/SELL theo khung 2h =====
+  // ===== 2. Bubble Chart BUY/SELL theo khung 2h (time axis) =====
   symbols.forEach(sym => {
     const points = bubbleData[sym] || [];
     if (!points.length) return;
 
-    const ctx = document.getElementById("bubbleChart-" + sym);
-    if (!ctx) return;
+    const canvas = document.getElementById("bubbleChart-" + sym);
+    if (!canvas) return;
 
     // Lấy max notional để scale radius
     let maxNotional = 0;
@@ -479,20 +482,18 @@
     const MIN_R = 4;
     const MAX_R = 26;
 
-    const labels = points.map(p => p.time_str); // dùng trong tooltip / trục
-
-    const buyData = [];
+    const buyData  = [];
     const sellData = [];
 
-    points.forEach((p, idx) => {
+    points.forEach(p => {
       const ratio = p.notional / maxNotional;
-      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio);  // sqrt để giảm chênh lệch
+      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio); // sqrt để đỡ lệch
 
       const basePoint = {
-        x: idx,
+        x: p.ts_ms,          // dùng timestamp ms cho trục time
         y: p.price,
         r: r,
-        _time: p.time_str,
+        _time: p.time_str,   // để tooltip
         _notional: p.notional,
         _side: p.side
       };
@@ -504,24 +505,28 @@
       }
     });
 
-    new Chart(ctx.getContext("2d"), {
+    // Tìm min/max x để scale đẹp hơn (optional)
+    const allX = points.map(p => p.ts_ms);
+    const minX = Math.min(...allX);
+    const maxX = Math.max(...allX);
+
+    new Chart(canvas.getContext("2d"), {
       type: "bubble",
       data: {
-        labels: labels,
         datasets: [
           {
             label: sym + " BUY (2h buckets)",
             data: buyData,
-            backgroundColor: "rgba(34, 197, 94, 0.4)",
+            backgroundColor: "rgba(34, 197, 94, 0.35)",
             borderColor: "rgba(34, 197, 94, 1.0)",
-            borderWidth: 1
+            borderWidth: 1,
           },
           {
             label: sym + " SELL (2h buckets)",
             data: sellData,
             backgroundColor: "rgba(239, 68, 68, 0.35)",
             borderColor: "rgba(239, 68, 68, 1.0)",
-            borderWidth: 1
+            borderWidth: 1,
           }
         ]
       },
@@ -530,15 +535,24 @@
         maintainAspectRatio: false,
         scales: {
           x: {
-            type: "category",
-            labels: labels,
+            type: "time",
+            min: minX,
+            max: maxX,
+            time: {
+              unit: "day",
+              tooltipFormat: "yyyy-LL-dd HH:mm",
+              displayFormats: {
+                hour: "LL-dd HH:mm",
+                day: "LL-dd",
+              },
+            },
             title: {
               display: true,
               text: "Thời gian (VN) – khung 2h"
             },
             ticks: {
               maxRotation: 60,
-              minRotation: 45,
+              minRotation: 30,
             }
           },
           y: {
@@ -549,21 +563,19 @@
           }
         },
         plugins: {
-          legend: {
-            position: "top"
-          },
+          legend: { position: "top" },
           tooltip: {
             callbacks: {
-              label: (context) => {
-                const p = context.raw;
+              label: (ctx) => {
+                const p = ctx.raw;
                 const price = p.y;
                 const notional = p._notional;
                 const time = p._time;
                 const side = p._side;
                 return [
-                  side + " – Time: " + time,
-                  "Price: " + price.toLocaleString("en-US", { maximumFractionDigits: 2 }),
-                  "Notional: " + fmtUsd(notional) + " USDT",
+                  `${side} – ${time}`,
+                  `Price: ${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
+                  `Notional: ${fmtUsd(notional)} USDT`,
                 ];
               }
             }
