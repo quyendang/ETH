@@ -1809,17 +1809,22 @@ async def big_trades_dashboard(request: Request):
                 continue
             price_ws = info["price_weighted_sum"]
             avg_price = price_ws / total_notional
-            time_str = bucket_start.strftime("%Y-%m-%d %H:%M")  # giờ VN gọn
+
+            # bucket_start đang là datetime VN (giờ +7)
+            time_str = bucket_start.strftime("%Y-%m-%d %H:%M")  # để hiển thị
+            ts_ms = int(bucket_start.timestamp() * 1000)        # để vẽ time axis
+
             points.append(
                 {
                     "side": side,            # "BUY" / "SELL"
-                    "time_str": time_str,
+                    "time_str": time_str,    # text hiển thị
+                    "ts_ms": ts_ms,          # timestamp ms cho trục X
                     "price": avg_price,
                     "notional": total_notional,
                 }
             )
-        # sort theo thời gian
-        points.sort(key=lambda p: p["time_str"])
+        # sort theo thời gian (theo timestamp cho chắc)
+        points.sort(key=lambda p: p["ts_ms"])
         bubble_data[sym] = points
 
     from_time = from_dt_utc or datetime.utcnow().replace(tzinfo=timezone.utc)
