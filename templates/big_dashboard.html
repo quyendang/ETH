@@ -295,7 +295,7 @@
         </div>
       </div>
 
-      <!-- 2) Bubble Charts – BUY & SELL tách riêng, cùng time axis -->
+      <!-- 2) Bubble Charts – BUY trên, SELL dưới (cùng time axis) -->
       <div class="panel">
         <div class="panel-title">
           <span>Bubble Charts – BUY / SELL orders ({{ sym }})</span>
@@ -303,19 +303,15 @@
             Khung 2h (giờ VN) – Y = giá – bubble size ∝ tổng notional trong khung.
           </span>
         </div>
-        <div class="two-col">
-          <div>
-            <div class="muted">BUY – màu xanh lá</div>
-            <div class="chart-container">
-              <canvas id="bubbleChart-{{ sym }}-BUY"></canvas>
-            </div>
-          </div>
-          <div>
-            <div class="muted">SELL – màu đỏ</div>
-            <div class="chart-container">
-              <canvas id="bubbleChart-{{ sym }}-SELL"></canvas>
-            </div>
-          </div>
+
+        <div style="margin-bottom: 8px;" class="muted">BUY – màu xanh lá, chart phía trên</div>
+        <div class="chart-container" style="margin-bottom: 16px;">
+          <canvas id="bubbleChart-{{ sym }}-BUY"></canvas>
+        </div>
+
+        <div style="margin-bottom: 8px;" class="muted">SELL – màu đỏ, chart phía dưới</div>
+        <div class="chart-container">
+          <canvas id="bubbleChart-{{ sym }}-SELL"></canvas>
         </div>
       </div>
 
@@ -470,7 +466,7 @@
     });
   });
 
-  // ===== 2. Bubble Charts BUY / SELL tách riêng, chung time axis =====
+  // ===== 2. Bubble Charts BUY / SELL tách riêng, cùng time axis =====
   symbols.forEach(sym => {
     const points = bubbleData[sym] || [];
     if (!points.length) return;
@@ -479,7 +475,7 @@
     const canvasSell = document.getElementById("bubbleChart-" + sym + "-SELL");
     if (!canvasBuy || !canvasSell) return;
 
-    // Max notional cho scale radius (có thể dùng chung cho cả BUY & SELL)
+    // Max notional cho scale radius (dùng chung)
     let maxNotional = 0;
     points.forEach(p => {
       if (p.notional > maxNotional) maxNotional = p.notional;
@@ -491,19 +487,20 @@
 
     const buyData  = [];
     const sellData = [];
-
-    // Tập timestamp để fix min/max trục thời gian giống nhau
-    const allTs = [];
+    const allTs    = [];
 
     points.forEach(p => {
       const ratio = p.notional / maxNotional;
-      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio); // sqrt cho đỡ lệch
+      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio);
+
+      const yPos = p.price; // giữ nguyên giá trên trục Y
 
       const basePoint = {
-        x: p.ts_ms,         // timestamp ms
-        y: p.price,
+        x: p.ts_ms,
+        y: yPos,
         r: r,
-        _time: p.time_str,  // text hiển thị
+        _price: p.price,
+        _time: p.time_str,
         _notional: p.notional,
         _side: p.side
       };
@@ -542,7 +539,7 @@
       }
     };
 
-    // Chart BUY
+    // Chart BUY (trên)
     new Chart(canvasBuy.getContext("2d"), {
       type: "bubble",
       data: {
@@ -574,7 +571,7 @@
             callbacks: {
               label: (ctx) => {
                 const p = ctx.raw;
-                const price = p.y;
+                const price = p._price;
                 const notional = p._notional;
                 const time = p._time;
                 return [
@@ -589,7 +586,7 @@
       }
     });
 
-    // Chart SELL
+    // Chart SELL (dưới)
     new Chart(canvasSell.getContext("2d"), {
       type: "bubble",
       data: {
@@ -621,7 +618,7 @@
             callbacks: {
               label: (ctx) => {
                 const p = ctx.raw;
-                const price = p.y;
+                const price = p._price;
                 const notional = p._notional;
                 const time = p._time;
                 return [
