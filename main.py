@@ -1492,6 +1492,7 @@ async def big_trades_dashboard(request: Request):
             supabase_admin.table("big_trades")
             .select("*")
             .in_("symbol", symbols)
+            .gt("notional_usdt", 500000)
             .order("trade_time", desc=True)
             .limit(10000)
             .execute()
