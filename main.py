@@ -1910,239 +1910,188 @@ async def code_post(
 
 @_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
-
+    """
+    Dashboard theo dõi bất kỳ symbol nào (BTCUSDT, ETHUSDT, BNBUSDT...):
+    - Giá, RSI, %change 24h
+    - Buy/Sell zone (dynamic)
+    - BUY/SELL signals (client-side: RSI + BB + Stoch + Williams %R + EMA trend)
+    - tracker_action/server (BUY/SELL/HOLD) dùng cùng logic với bot (ethtracker)
+    - SUBSCRIBE/UNSUBSCRIBE symbol này.
+    """
     symbol = symbol.upper()
 
-    # ============================
-    # 1) Lấy dữ liệu klines 4H
-    # ============================
+    # 1) Lấy klines từ Binance
     try:
-        klines = _rsi_fetch_klines(symbol, TRACKER_INTERVAL, limit=250)
+        klines = _rsi_fetch_klines(symbol, TRACKER_INTERVAL, limit=200)
     except Exception as e:
         logging.error(f"[SYMBOL DASH] Error fetching klines for {symbol}: {e}")
         klines = []
 
-    labels = []
-    closes = []
-    highs = []
-    lows = []
+    labels: List[str] = []
+    closes: List[float] = []
+    highs: List[float] = []
+    lows: List[float] = []
 
     for k in klines:
-        open_time_ms = int(k[0])
-        dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
-        labels.append(dt.strftime("%Y-%m-%d %H:%M"))
+        try:
+            open_time_ms = int(k[0])
+            dt = datetime.utcfromtimestamp(open_time_ms / 1000.0)
+            labels.append(dt.strftime("%Y-%m-%d %H:%M"))
 
-        high = float(k[2])
-        low = float(k[3])
-        close = float(k[4])
+            o = float(k[1])
+            h = float(k[2])
+            l = float(k[3])
+            c = float(k[4])
 
-        highs.append(high)
-        lows.append(low)
-        closes.append(close)
+            highs.append(h)
+            lows.append(l)
+            closes.append(c)
+        except Exception as e:
+            logging.warning(f"[SYMBOL DASH] Bad kline row for {symbol}: {e}")
+            continue
 
     if not closes:
-        return templates.TemplateResponse(
-            "symbol_dashboard.html",
-            {
-                "request": request,
-                "symbol": symbol,
-                "labels": [],
-                "prices": [],
-                "rsi_values": [],
-                "macd_hist_values": [],
-                "buy_signals": [],
-                "sell_signals": [],
-                "last_price": None,
-                "last_rsi": None,
-                "buy_low": None,
-                "buy_high": None,
-                "sell_low": None,
-                "sell_high": None,
-                "signal_history": [],
-                "change_24h": None,
-            },
-        )
+        context = {
+            "request": request,
+            "symbol": symbol,
+            "rows_json": [],
+            "last_price": None,
+            "last_rsi": None,
+            "change_24h": None,
+            "buy_low": None,
+            "buy_high": None,
+            "sell_low": None,
+            "sell_high": None,
+            "is_subscribed": False,
+            "tracker_action": "HOLD",
+            "tracker_reason": "No data",
+        }
+        return templates.TemplateResponse("symbol_dashboard.html", context)
 
-    # ============================
-    # 2) Tính RSI, MACD, EMA, BBANDS
-    # ============================
+    # 2) Indicator series
     rsi_values = _compute_rsi_series(closes, RSI_PERIOD)
     macd_line, macd_signal, macd_hist_values = _compute_macd_series(
         closes, MACD_FAST, MACD_SLOW, MACD_SIGNAL
     )
-
     ema_fast = _compute_ema_series(closes, 12)
     ema_slow = _compute_ema_series(closes, 26)
+    sma_50 = _sma_series(closes, 50)
 
-    bb_mid, bb_up, bb_low = _bollinger_bands(closes, period=20, k=2)
-
+    bb_middle, bb_upper, bb_lower = _bollinger_bands(closes, period=20, k=2.0)
     stoch_k = _stochastic_oscillator(highs, lows, closes, period=14)
-    wr_vals = _williams_r(highs, lows, closes, period=14)
+    williams_r = _williams_r(highs, lows, closes, period=14)
 
-    # ============================
-    # 3) Dynamic zones — ETH logic (áp dụng cho mọi coin)
-    # ============================
+    # 3) Dynamic zones
+    buy_low = buy_high = sell_low = sell_high = recent_low = recent_high = None
     try:
-        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = \
-            _compute_eth_zones_from_range(symbol, TRACKER_INTERVAL, lookback=80)
-    except Exception:
-        sell_low = sell_high = buy_low = buy_high = None
+        zones = _compute_eth_zones_from_range(symbol, TRACKER_INTERVAL, lookback=60)
+        sell_low, sell_high, buy_low, buy_high, recent_low, recent_high = zones
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error computing zones for {symbol}: {e}")
 
-    # ============================
-    # 4) Current data
-    # ============================
+    # 4) Align length
+    n = len(closes)
+    min_len = min(
+        n,
+        len(labels),
+        len(rsi_values),
+        len(macd_hist_values),
+        len(ema_fast),
+        len(ema_slow),
+        len(bb_upper),
+        len(bb_lower),
+        len(stoch_k),
+        len(williams_r),
+    )
+
+    labels = labels[-min_len:]
+    closes = closes[-min_len:]
+    rsi_values = rsi_values[-min_len:]
+    macd_hist_values = macd_hist_values[-min_len:]
+    ema_fast = ema_fast[-min_len:]
+    ema_slow = ema_slow[-min_len:]
+    bb_upper = bb_upper[-min_len:]
+    bb_lower = bb_lower[-min_len:]
+    stoch_k = stoch_k[-min_len:]
+    williams_r = williams_r[-min_len:]
+    highs = highs[-min_len:]
+    lows = lows[-min_len:]
+
+    # 5) rows_json cho JS vẽ chart
+    rows_json: List[Dict[str, Any]] = []
+    for i in range(min_len):
+        rows_json.append(
+            {
+                "time_str": labels[i],
+                "price": closes[i],
+                "rsi_h4": rsi_values[i],
+                "macd_hist": macd_hist_values[i],
+                "ema_fast": ema_fast[i],
+                "ema_slow": ema_slow[i],
+                "bb_upper": bb_upper[i],
+                "bb_lower": bb_lower[i],
+                "stoch_k": stoch_k[i],
+                "wr": williams_r[i],
+            }
+        )
+
+    # 6) Price / RSI / %change 24h
     last_price = closes[-1]
     last_rsi = rsi_values[-1] if rsi_values else None
 
-    # Lấy BTC filter
-    btc_rsi, btc_macd_hist, btc_prev = None, None, None
-    try:
-        b_price, btc_rsi = _rsi_latest("BTCUSDT", TRACKER_INTERVAL, RSI_PERIOD)
-        _, btc_macd_hist, btc_prev = _macd_latest_hist("BTCUSDT", TRACKER_INTERVAL)
-    except Exception:
-        pass
-
-    # ============================
-    # 5) Server BUY/SELL decision
-    # ============================
-    zones = (
-        sell_low or 0,
-        sell_high or 0,
-        buy_low or 0,
-        buy_high or 0,
-        recent_low or 0,
-        recent_high or 0,
-    )
-
-    prev_macd = macd_hist_values[-2] if len(macd_hist_values) > 1 else None
-
-    decision = _eth_decide_action(
-        price=last_price,
-        rsi_h4=last_rsi,
-        macd_hist=macd_hist_values[-1],
-        prev_macd_hist=prev_macd,
-        zones=zones,
-        btc_rsi_h4=btc_rsi,
-        btc_macd_hist=btc_macd_hist,
-        btc_prev_macd_hist=btc_prev,
-    )
-
-    server_tracker_action = decision["action"]
-    tracker_reason = decision["reason"]
-
-    # ============================
-    # 6) LƯU BUY/SELL HISTORY VÀO SUPABASE
-    # ============================
-    if server_tracker_action in ("BUY", "SELL"):
-        try:
-            supabase_admin.table("symbol_signals").insert(
-                {
-                    "symbol": symbol,
-                    "timeframe": TRACKER_INTERVAL,
-                    "price": last_price,
-                    "signal": server_tracker_action,
-                    "reason": tracker_reason,
-                    "rsi": last_rsi,
-                    "macd_hist": macd_hist_values[-1],
-                }
-            ).execute()
-        except Exception as e:
-            logging.error(f"[SAVE SIGNAL] {symbol}: {e}")
-
-    # ============================
-    # 7) Lấy lịch sử BUY/SELL từ Supabase
-    # ============================
-    try:
-        history_resp = (
-            supabase_admin.table("symbol_signals")
-            .select("*")
-            .eq("symbol", symbol)
-            .order("created_at", desc=True)
-            .limit(200)
-            .execute()
-        )
-        signal_history = history_resp.data or []
-    except Exception as e:
-        logging.error(f"[SIGNAL HISTORY] {symbol}: {e}")
-        signal_history = []
-
-    # ============================
-    # 8) Tính BUY/SELL signals (vẽ chart)
-    # ============================
-    n = len(closes)
-    buy_signals = [None] * n
-    sell_signals = [None] * n
-
-    for i in range(n):
-        price = closes[i]
-        rsi = rsi_values[i]
-        bbL = bb_low[i]
-        bbU = bb_up[i]
-        ef = ema_fast[i]
-        es = ema_slow[i]
-        stoch = stoch_k[i]
-        wr = wr_vals[i]
-
-        is_rsi_low = rsi is not None and rsi < 40
-        is_bb_low = bbL is not None and price <= bbL
-        is_stoch_low = stoch is not None and stoch < 20
-        is_wr_low = wr is not None and wr < -80
-        trend_up = ef is not None and es is not None and ef >= es
-
-        cond_buy = (is_rsi_low and is_bb_low) or (is_stoch_low and is_wr_low and trend_up)
-
-        is_rsi_high = rsi is not None and rsi > 65
-        is_bb_up = bbU is not None and price >= bbU
-        is_stoch_up = stoch is not None and stoch > 80
-        is_wr_up = wr is not None and wr > -20
-        trend_down = ef is not None and es is not None and ef <= es
-
-        cond_sell = (is_rsi_high and is_bb_up) or (is_stoch_up and is_wr_up and trend_down)
-
-        inBuy = buy_low and buy_high and buy_low <= price <= buy_high
-        inSell = sell_low and sell_high and sell_low <= price <= sell_high
-
-        if cond_buy and inBuy:
-            buy_signals[i] = price
-        if cond_sell and inSell:
-            sell_signals[i] = price
-
-    # ============================
-    # 9) Get 24h change %
-    # ============================
     change_24h = None
     try:
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
-        r = httpx.get(url, timeout=5).json()
-        change_24h = float(r.get("priceChangePercent", 0))
+        if len(closes) >= 7:
+            ref = closes[-7]
+            if ref != 0:
+                change_24h = (last_price - ref) / ref * 100.0
     except Exception:
-        pass
+        change_24h = None
 
-    # ============================
-    # 10) Render HTML
-    # ============================
+    # 7) Server-side tracker action (logic giống bot)
+    tracker_action = "HOLD"
+    tracker_reason = ""
+    try:
+        payload = run_symbol_tracker_once(symbol, send_notify=False)
+        tracker_action = payload.get("action", "HOLD")
+        tracker_reason = payload.get("reason", "")
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error run_symbol_tracker_once for {symbol}: {e}")
+
+    # 8) Check subscription
+    is_subscribed = False
+    try:
+        resp = (
+            supabase_admin.table("bot_subscriptions")
+            .select("is_active")
+            .eq("symbol", symbol)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if rows and rows[0].get("is_active"):
+            is_subscribed = True
+    except Exception as e:
+        logging.error(f"[SYMBOL DASH] Error check subscription for {symbol}: {e}")
+
     context = {
         "request": request,
         "symbol": symbol,
-        "labels": labels,
-        "prices": closes,
-        "rsi_values": rsi_values,
-        "macd_hist_values": macd_hist_values,
-        "buy_signals": buy_signals,
-        "sell_signals": sell_signals,
+        "rows_json": rows_json,
         "last_price": last_price,
         "last_rsi": last_rsi,
+        "change_24h": change_24h,
         "buy_low": buy_low,
         "buy_high": buy_high,
         "sell_low": sell_low,
         "sell_high": sell_high,
-        "server_action": server_tracker_action,
-        "server_reason": tracker_reason,
-        "signal_history": signal_history,
-        "change_24h": change_24h,
+        "is_subscribed": is_subscribed,
+        "tracker_action": tracker_action,
+        "tracker_reason": tracker_reason,
     }
+
     return templates.TemplateResponse("symbol_dashboard.html", context)
-    
+
 @app.get("/{short_id}", response_class=HTMLResponse)
 async def share_lesson_by_short_id(
     request: Request,
