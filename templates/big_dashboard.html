@@ -7,7 +7,6 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- Nếu sau này bạn cần DataLabels thì thêm plugin, còn Bubble chart hiện tại không bắt buộc -->
 
   <style>
     :root {
@@ -223,7 +222,7 @@
     <div>
       <div class="header-title">Big Trades Dashboard</div>
       <div class="header-sub">
-        Big size orders BTCUSDT &amp; ETHUSDT trong window gần nhất.
+        Big size orders BTCUSDT &amp; ETHUSDT – lấy 10.000 lệnh mới nhất từ bảng <code>big_trades</code>.
       </div>
       {% if from_time and to_time %}
       <div class="range-text">
@@ -236,10 +235,9 @@
   </header>
 
   {% if not has_data %}
-    <p class="muted">Không có dữ liệu big_trades trong khoảng thời gian này.</p>
+    <p class="muted">Không có dữ liệu big_trades.</p>
   {% else %}
 
-    {# Giả định summary chứa BTCUSDT & ETHUSDT #}
     <section class="cards">
       {% for sym, s in summary.items() %}
       <div class="card">
@@ -291,19 +289,19 @@
       <div class="panel">
         <div class="panel-title">
           <span>Big trades theo vùng giá ({{ sym }})</span>
-          <span class="sub">BUY bên trái, SELL bên phải</span>
+          <span class="sub">BUY bên trái, SELL bên phải (stacked horizontal bar)</span>
         </div>
         <div class="chart-container">
           <canvas id="bucketChart-{{ sym }}"></canvas>
         </div>
       </div>
 
-      <!-- 2) Bubble Chart: BUY orders theo thời gian & giá -->
+      <!-- 2) Bubble Chart: BUY/SELL orders theo khung 2h -->
       <div class="panel">
         <div class="panel-title">
-          <span>Bubble Chart – BUY orders ({{ sym }})</span>
+          <span>Bubble Chart – BUY/SELL orders ({{ sym }})</span>
           <span class="sub">
-            Trục X: thời gian (VN) • Trục Y: giá • Bubble: giá trị lệnh (tối thiểu 200k USDT = nhỏ nhất)
+            Khung 2h (giờ VN) – Y: giá – kích thước bubble ∝ tổng notional trong khung.
           </span>
         </div>
         <div class="chart-container">
@@ -311,11 +309,11 @@
         </div>
       </div>
 
-      <!-- 3) Exchange summary + Last 10 orders -->
+      <!-- 3) Exchange summary + Last 10 big orders -->
       <div class="panel">
         <div class="panel-title">
           <span>Exchange summary &amp; last 10 big orders ({{ sym }})</span>
-          <span class="sub">Thống kê sàn &amp; lệnh gần nhất</span>
+          <span class="sub">Thống kê theo sàn &amp; lệnh gần nhất</span>
         </div>
         <div class="two-col">
           <div>
@@ -383,9 +381,8 @@
 
 {% if has_data %}
 <script>
-  // ==== Dữ liệu từ backend ====
   const bucketsChart = {{ buckets_chart | tojson }};
-  const lastTrades   = {{ last_trades | tojson }};
+  const bubbleData   = {{ bubble_data | tojson }};
   const symbols      = ["BTCUSDT", "ETHUSDT"];
 
   function fmtUsd(x) {
@@ -393,7 +390,7 @@
     return x.toLocaleString("en-US", { maximumFractionDigits: 0 });
   }
 
-  // ===== 1. Vẽ Horizontal Bar cho "Big trades theo vùng giá" =====
+  // ===== 1. Horizontal bar cho buckets theo vùng giá =====
   symbols.forEach(sym => {
     const cfg = bucketsChart[sym] || { labels: [], buy_data: [], sell_data: [] };
     const labels = cfg.labels || [];
@@ -405,9 +402,8 @@
     const ctx = document.getElementById("bucketChart-" + sym);
     if (!ctx) return;
 
-    // BUY âm (trái), SELL dương (phải)
-    const buyNeg   = buy.map(v => -v);
-    const sellPos  = sell;
+    const buyNeg  = buy.map(v => -v);   // BUY: âm -> bên trái
+    const sellPos = sell;              // SELL: dương -> bên phải
 
     new Chart(ctx.getContext("2d"), {
       type: "bar",
@@ -450,9 +446,7 @@
           }
         },
         plugins: {
-          legend: {
-            position: "top"
-          },
+          legend: { position: "top" },
           tooltip: {
             callbacks: {
               label: (context) => {
@@ -467,52 +461,69 @@
     });
   });
 
-  // ===== 2. Vẽ Bubble Chart cho BUY orders (dùng last_trades) =====
+  // ===== 2. Bubble Chart BUY/SELL theo khung 2h =====
   symbols.forEach(sym => {
-    const trades = lastTrades[sym] || [];
-    // Lọc BUY
-    const buyTrades = trades.filter(t => t.side === "BUY");
-
-    if (!buyTrades.length) return;
+    const points = bubbleData[sym] || [];
+    if (!points.length) return;
 
     const ctx = document.getElementById("bubbleChart-" + sym);
     if (!ctx) return;
 
-    // Tính radius theo notional, với 200k là nhỏ nhất (r ~ 4)
-    const BASE = 200000;   // 200k
-    const MAX_R = 25;      // max radius
-    const MIN_R = 4;       // min radius
+    // Lấy max notional để scale radius
+    let maxNotional = 0;
+    points.forEach(p => {
+      if (p.notional > maxNotional) maxNotional = p.notional;
+    });
+    if (maxNotional <= 0) maxNotional = 1;
 
-    // Dùng label x = time_vn luôn (category), bubble data dùng x = index
-    const labels = buyTrades.map(t => t.time_vn);
+    const MIN_R = 4;
+    const MAX_R = 26;
 
-    const data = buyTrades.map((t, idx) => {
-      const notional = t.notional || 0;
-      let ratio = notional / BASE;
-      if (ratio < 1) ratio = 1;
-      let r = Math.sqrt(ratio) * 4;
-      if (r < MIN_R) r = MIN_R;
-      if (r > MAX_R) r = MAX_R;
-      return {
-        x: idx,           // index, trục X category
-        y: t.price,       // giá
+    const labels = points.map(p => p.time_str); // dùng trong tooltip / trục
+
+    const buyData = [];
+    const sellData = [];
+
+    points.forEach((p, idx) => {
+      const ratio = p.notional / maxNotional;
+      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio);  // sqrt để giảm chênh lệch
+
+      const basePoint = {
+        x: idx,
+        y: p.price,
         r: r,
-        _notional: notional,
-        _time: t.time_vn,
+        _time: p.time_str,
+        _notional: p.notional,
+        _side: p.side
       };
+
+      if (p.side === "BUY") {
+        buyData.push(basePoint);
+      } else {
+        sellData.push(basePoint);
+      }
     });
 
     new Chart(ctx.getContext("2d"), {
       type: "bubble",
       data: {
         labels: labels,
-        datasets: [{
-          label: sym + " BUY big orders",
-          data: data,
-          backgroundColor: "rgba(37, 99, 235, 0.35)",
-          borderColor: "rgba(37, 99, 235, 0.9)",
-          borderWidth: 1,
-        }]
+        datasets: [
+          {
+            label: sym + " BUY (2h buckets)",
+            data: buyData,
+            backgroundColor: "rgba(34, 197, 94, 0.4)",
+            borderColor: "rgba(34, 197, 94, 1.0)",
+            borderWidth: 1
+          },
+          {
+            label: sym + " SELL (2h buckets)",
+            data: sellData,
+            backgroundColor: "rgba(239, 68, 68, 0.35)",
+            borderColor: "rgba(239, 68, 68, 1.0)",
+            borderWidth: 1
+          }
+        ]
       },
       options: {
         responsive: true,
@@ -523,7 +534,7 @@
             labels: labels,
             title: {
               display: true,
-              text: "Thời gian (VN)"
+              text: "Thời gian (VN) – khung 2h"
             },
             ticks: {
               maxRotation: 60,
@@ -539,17 +550,18 @@
         },
         plugins: {
           legend: {
-            display: false
+            position: "top"
           },
           tooltip: {
             callbacks: {
               label: (context) => {
-                const point = context.raw;
-                const price = point.y;
-                const notional = point._notional;
-                const time = point._time;
+                const p = context.raw;
+                const price = p.y;
+                const notional = p._notional;
+                const time = p._time;
+                const side = p._side;
                 return [
-                  "Time: " + time,
+                  side + " – Time: " + time,
                   "Price: " + price.toLocaleString("en-US", { maximumFractionDigits: 2 }),
                   "Notional: " + fmtUsd(notional) + " USDT",
                 ];
