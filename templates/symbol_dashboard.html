@@ -135,7 +135,6 @@
       padding: 16px 16px 20px;
       border: 1px solid var(--border);
       box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
-      margin-bottom: 20px;
     }
 
     .panel-title {
@@ -180,31 +179,6 @@
       font-weight: 600;
       padding: 6px 12px;
       border-radius: 999px;
-    }
-
-    /* History table */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.82rem;
-    }
-    th, td {
-      padding: 6px 8px;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      background: #f9fafb;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 0.75rem;
-      color: var(--text-sub);
-    }
-    td.reason-cell {
-      max-width: 450px;
-      white-space: normal;
-      word-wrap: break-word;
     }
 
     @media (max-width: 640px) {
@@ -316,57 +290,6 @@
       </div>
       <canvas id="priceRsiChart" height="260"></canvas>
     </section>
-
-    <!-- HISTORY TABLE -->
-    <section class="panel">
-      <div class="panel-title">
-        <div>
-          Lịch sử BUY/SELL signals
-          <span class="sub">Max 200 entries gần nhất (lưu trên Supabase)</span>
-        </div>
-      </div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Signal</th>
-            <th>Price</th>
-            <th>RSI</th>
-            <th>MACD Hist</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for s in signal_history or [] %}
-          <tr>
-            <td>{{ s.created_at | replace("T", " ")[:16] }}</td>
-            <td>
-              {% if s.signal == "BUY" %}
-                <span class="badge-state state-buy">BUY</span>
-              {% elif s.signal == "SELL" %}
-                <span class="badge-state state-sell">SELL</span>
-              {% else %}
-                {{ s.signal }}
-              {% endif %}
-            </td>
-            <td>${{ "%.2f"|format(s.price) if s.price is not none else "…" }}</td>
-            <td>{{ "%.1f"|format(s.rsi) if s.rsi is not none else "…" }}</td>
-            <td>{{ "%.4f"|format(s.macd_hist) if s.macd_hist is not none else "…" }}</td>
-            <td class="reason-cell">{{ s.reason }}</td>
-          </tr>
-        {% endfor %}
-        {% if not (signal_history or []) %}
-          <tr>
-            <td colspan="6" style="color:var(--text-sub); font-size:0.8rem;">
-              Chưa có lịch sử BUY/SELL nào được lưu cho {{ symbol }}.
-            </td>
-          </tr>
-        {% endif %}
-        </tbody>
-      </table>
-    </section>
-
   </div>
 
   <!-- ================= SCRIPT ================= -->
@@ -391,9 +314,6 @@
     const sellLow = {{ sell_low if sell_low is not none else 'null' }};
     const sellHigh= {{ sell_high if sell_high is not none else 'null' }};
 
-    // Lịch sử signals từ Supabase
-    const signalHistory = {{ (signal_history or []) | tojson }};
-
     // ==== 2. Plugin vẽ BUY/SELL ZONES ====
     const priceZonesPlugin = {
       id: 'priceZones',
@@ -405,6 +325,7 @@
         if (!chartArea) return;
         const { left, right } = chartArea;
         const yScale = scales['y'];
+
         if (!yScale) return;
 
         ctx.save();
@@ -431,7 +352,7 @@
       }
     };
 
-    // ==== 3. Tính BUY / SELL signals (inline, client-side) ====
+    // ==== 3. Tính BUY / SELL signals & trạng thái cuối (client-side) ====
     function computeSignals(
       prices, rsiArr, bbU, bbL, emaF, emaS, stochArr, wrArr,
       buyLow, buyHigh, sellLow, sellHigh
@@ -511,7 +432,7 @@
       else stateEl.classList.add("state-hold");
     }
 
-    // ==== 5. Build points cho scatter inline BUY/SELL ====
+    // ==== 5. Build points cho scatter BUY/SELL ====
     function buildSignalPoints(signals) {
       const pts = [];
       for (let i = 0; i < signals.length; i++) {
@@ -525,52 +446,9 @@
     const buyPoints  = buildSignalPoints(buySignals);
     const sellPoints = buildSignalPoints(sellSignals);
 
-    // ==== 6. Map lịch sử BUY/SELL (Supabase) vào chart ====
-    // Dùng created_at → map về candle gần nhất theo labels
-    const labelTimes = labels.map(l => {
-      // l dạng "YYYY-MM-DD HH:MM" (UTC)
-      const iso = l.replace(" ", "T") + ":00Z";
-      return Date.parse(iso);
-    });
-
-    function nearestLabelIndex(ts) {
-      let bestIdx = 0;
-      let bestDiff = Infinity;
-      for (let i = 0; i < labelTimes.length; i++) {
-        const d = Math.abs(labelTimes[i] - ts);
-        if (d < bestDiff) {
-          bestDiff = d;
-          bestIdx = i;
-        }
-      }
-      return bestIdx;
-    }
-
-    const histBuyPoints = [];
-    const histSellPoints = [];
-
-    (signalHistory || []).forEach(s => {
-      if (!s.created_at || s.price == null) return;
-      const ts = Date.parse(s.created_at);
-      if (isNaN(ts)) return;
-      if (!labelTimes.length) return;
-
-      const idx = nearestLabelIndex(ts);
-      const xLabel = labels[idx];
-      const price = Number(s.price);
-
-      const pt = { x: xLabel, y: price };
-
-      if ((s.signal || "").toUpperCase() === "BUY") {
-        histBuyPoints.push(pt);
-      } else if ((s.signal || "").toUpperCase() === "SELL") {
-        histSellPoints.push(pt);
-      }
-    });
-
     Chart.register(priceZonesPlugin);
 
-    // ==== 7. Vẽ chart Price + RSI + BUY/SELL + history ====
+    // ==== 6. Vẽ chart Price + RSI + BUY/SELL ====
     const ctxPriceRsi = document.getElementById("priceRsiChart").getContext("2d");
 
     const priceRsiChart = new Chart(ctxPriceRsi, {
@@ -598,7 +476,7 @@
           },
           {
             type: "scatter",
-            label: "BUY Signal (inline)",
+            label: "BUY Signal",
             data: buyPoints,
             yAxisID: "y",
             borderColor: "rgba(22, 163, 74, 1)",
@@ -609,7 +487,7 @@
           },
           {
             type: "scatter",
-            label: "SELL Signal (inline)",
+            label: "SELL Signal",
             data: sellPoints,
             yAxisID: "y",
             borderColor: "rgba(239, 68, 68, 1)",
@@ -618,28 +496,6 @@
             pointRotation: 180,
             pointRadius: 6,
             pointHoverRadius: 7
-          },
-          {
-            type: "scatter",
-            label: "Historical BUY",
-            data: histBuyPoints,
-            yAxisID: "y",
-            borderColor: "rgba(16, 185, 129, 1)",
-            backgroundColor: "rgba(16, 185, 129, 1)",
-            pointStyle: "circle",
-            pointRadius: 4,
-            pointHoverRadius: 6
-          },
-          {
-            type: "scatter",
-            label: "Historical SELL",
-            data: histSellPoints,
-            yAxisID: "y",
-            borderColor: "rgba(239, 68, 68, 1)",
-            backgroundColor: "rgba(239, 68, 68, 1)",
-            pointStyle: "rect",
-            pointRadius: 4,
-            pointHoverRadius: 6
           }
         ]
       },
