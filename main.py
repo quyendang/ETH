@@ -1908,7 +1908,7 @@ async def code_post(
     )
 
 
-@_rsi_router.get("{symbol}", response_class=HTMLResponse)
+@_rsi_router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
 
     symbol = symbol.upper()
