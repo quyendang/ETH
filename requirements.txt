@@ -10,3 +10,4 @@ apscheduler
 requests
 pyjwt
 cryptography
+notify_events
