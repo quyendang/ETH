@@ -7,9 +7,9 @@
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Time adapter cho Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
-
 
   <style>
     :root {
@@ -116,15 +116,6 @@
     .pill-sell { background: rgba(239, 68, 68, 0.9); }
     .pill-neutral { background: #6b7280; }
 
-    .badge-symbol {
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: rgba(37, 99, 235, 0.08);
-      color: var(--accent);
-      font-size: 0.75rem;
-      font-weight: 600;
-    }
-
     .badge-exchange {
       padding: 2px 6px;
       border-radius: 999px;
@@ -217,6 +208,10 @@
       color: var(--text-sub);
       font-size: 0.8rem;
     }
+
+    @media (max-width: 640px) {
+      .header { flex-direction: column; }
+    }
   </style>
 </head>
 <body>
@@ -241,6 +236,7 @@
     <p class="muted">Không có dữ liệu big_trades.</p>
   {% else %}
 
+    <!-- SUMMARY CARDS -->
     <section class="cards">
       {% for sym, s in summary.items() %}
       <div class="card">
@@ -288,35 +284,46 @@
         {% endif %}
       </div>
 
-      <!-- 1) Big trades theo vùng giá (Horizontal Bar) -->
+      <!-- 1) Horizontal Bar theo vùng giá -->
       <div class="panel">
         <div class="panel-title">
           <span>Big trades theo vùng giá ({{ sym }})</span>
-          <span class="sub">BUY bên trái, SELL bên phải (stacked horizontal bar)</span>
+          <span class="sub">BUY bên trái – SELL bên phải (stacked horizontal bar)</span>
         </div>
         <div class="chart-container">
           <canvas id="bucketChart-{{ sym }}"></canvas>
         </div>
       </div>
 
-      <!-- 2) Bubble Chart: BUY/SELL orders theo khung 2h -->
+      <!-- 2) Bubble Charts – BUY & SELL tách riêng, cùng time axis -->
       <div class="panel">
         <div class="panel-title">
-          <span>Bubble Chart – BUY/SELL orders ({{ sym }})</span>
+          <span>Bubble Charts – BUY / SELL orders ({{ sym }})</span>
           <span class="sub">
-            Khung 2h (giờ VN) – Y: giá – kích thước bubble ∝ tổng notional trong khung.
+            Khung 2h (giờ VN) – Y = giá – bubble size ∝ tổng notional trong khung.
           </span>
         </div>
-        <div class="chart-container">
-          <canvas id="bubbleChart-{{ sym }}"></canvas>
+        <div class="two-col">
+          <div>
+            <div class="muted">BUY – màu xanh lá</div>
+            <div class="chart-container">
+              <canvas id="bubbleChart-{{ sym }}-BUY"></canvas>
+            </div>
+          </div>
+          <div>
+            <div class="muted">SELL – màu đỏ</div>
+            <div class="chart-container">
+              <canvas id="bubbleChart-{{ sym }}-SELL"></canvas>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 3) Exchange summary + Last 10 big orders -->
+      <!-- 3) Exchange summary + Last 10 orders -->
       <div class="panel">
         <div class="panel-title">
           <span>Exchange summary &amp; last 10 big orders ({{ sym }})</span>
-          <span class="sub">Thống kê theo sàn &amp; lệnh gần nhất</span>
+          <span class="sub">Volume &amp; số lệnh theo sàn</span>
         </div>
         <div class="two-col">
           <div>
@@ -341,7 +348,6 @@
               </tbody>
             </table>
           </div>
-
           <div>
             <table>
               <thead>
@@ -402,13 +408,13 @@
 
     if (!labels.length) return;
 
-    const ctx = document.getElementById("bucketChart-" + sym);
-    if (!ctx) return;
+    const canvas = document.getElementById("bucketChart-" + sym);
+    if (!canvas) return;
 
-    const buyNeg  = buy.map(v => -v);   // BUY: âm -> bên trái
-    const sellPos = sell;              // SELL: dương -> bên phải
+    const buyNeg  = buy.map(v => -v); // BUY âm -> bên trái
+    const sellPos = sell;             // SELL dương -> bên phải
 
-    new Chart(ctx.getContext("2d"), {
+    new Chart(canvas.getContext("2d"), {
       type: "bar",
       data: {
         labels: labels,
@@ -433,7 +439,7 @@
           x: {
             stacked: true,
             ticks: {
-              callback: (value) => fmtUsd(Math.abs(value))
+              callback: (value) => fmtUsd(Math.abs(value)),
             },
             title: {
               display: true,
@@ -464,15 +470,16 @@
     });
   });
 
-  // ===== 2. Bubble Chart BUY/SELL theo khung 2h (time axis) =====
+  // ===== 2. Bubble Charts BUY / SELL tách riêng, chung time axis =====
   symbols.forEach(sym => {
     const points = bubbleData[sym] || [];
     if (!points.length) return;
 
-    const canvas = document.getElementById("bubbleChart-" + sym);
-    if (!canvas) return;
+    const canvasBuy  = document.getElementById("bubbleChart-" + sym + "-BUY");
+    const canvasSell = document.getElementById("bubbleChart-" + sym + "-SELL");
+    if (!canvasBuy || !canvasSell) return;
 
-    // Lấy max notional để scale radius
+    // Max notional cho scale radius (có thể dùng chung cho cả BUY & SELL)
     let maxNotional = 0;
     points.forEach(p => {
       if (p.notional > maxNotional) maxNotional = p.notional;
@@ -485,18 +492,23 @@
     const buyData  = [];
     const sellData = [];
 
+    // Tập timestamp để fix min/max trục thời gian giống nhau
+    const allTs = [];
+
     points.forEach(p => {
       const ratio = p.notional / maxNotional;
-      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio); // sqrt để đỡ lệch
+      const r = MIN_R + (MAX_R - MIN_R) * Math.sqrt(ratio); // sqrt cho đỡ lệch
 
       const basePoint = {
-        x: p.ts_ms,          // dùng timestamp ms cho trục time
+        x: p.ts_ms,         // timestamp ms
         y: p.price,
         r: r,
-        _time: p.time_str,   // để tooltip
+        _time: p.time_str,  // text hiển thị
         _notional: p.notional,
         _side: p.side
       };
+
+      allTs.push(p.ts_ms);
 
       if (p.side === "BUY") {
         buyData.push(basePoint);
@@ -505,12 +517,33 @@
       }
     });
 
-    // Tìm min/max x để scale đẹp hơn (optional)
-    const allX = points.map(p => p.ts_ms);
-    const minX = Math.min(...allX);
-    const maxX = Math.max(...allX);
+    const minX = Math.min(...allTs);
+    const maxX = Math.max(...allTs);
 
-    new Chart(canvas.getContext("2d"), {
+    const commonTimeScale = {
+      type: "time",
+      min: minX,
+      max: maxX,
+      time: {
+        unit: "day",
+        tooltipFormat: "yyyy-LL-dd HH:mm",
+        displayFormats: {
+          hour: "LL-dd HH:mm",
+          day: "LL-dd",
+        },
+      },
+      title: {
+        display: true,
+        text: "Thời gian (VN) – khung 2h"
+      },
+      ticks: {
+        maxRotation: 60,
+        minRotation: 30,
+      }
+    };
+
+    // Chart BUY
+    new Chart(canvasBuy.getContext("2d"), {
       type: "bubble",
       data: {
         datasets: [
@@ -520,13 +553,6 @@
             backgroundColor: "rgba(34, 197, 94, 0.35)",
             borderColor: "rgba(34, 197, 94, 1.0)",
             borderWidth: 1,
-          },
-          {
-            label: sym + " SELL (2h buckets)",
-            data: sellData,
-            backgroundColor: "rgba(239, 68, 68, 0.35)",
-            borderColor: "rgba(239, 68, 68, 1.0)",
-            borderWidth: 1,
           }
         ]
       },
@@ -534,27 +560,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          x: {
-            type: "time",
-            min: minX,
-            max: maxX,
-            time: {
-              unit: "day",
-              tooltipFormat: "yyyy-LL-dd HH:mm",
-              displayFormats: {
-                hour: "LL-dd HH:mm",
-                day: "LL-dd",
-              },
-            },
-            title: {
-              display: true,
-              text: "Thời gian (VN) – khung 2h"
-            },
-            ticks: {
-              maxRotation: 60,
-              minRotation: 30,
-            }
-          },
+          x: commonTimeScale,
           y: {
             title: {
               display: true,
@@ -571,11 +577,57 @@
                 const price = p.y;
                 const notional = p._notional;
                 const time = p._time;
-                const side = p._side;
                 return [
-                  `${side} – ${time}`,
-                  `Price: ${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
-                  `Notional: ${fmtUsd(notional)} USDT`,
+                  "BUY – " + time,
+                  "Price: " + price.toLocaleString("en-US", { maximumFractionDigits: 2 }),
+                  "Notional: " + fmtUsd(notional) + " USDT",
+                ];
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Chart SELL
+    new Chart(canvasSell.getContext("2d"), {
+      type: "bubble",
+      data: {
+        datasets: [
+          {
+            label: sym + " SELL (2h buckets)",
+            data: sellData,
+            backgroundColor: "rgba(239, 68, 68, 0.35)",
+            borderColor: "rgba(239, 68, 68, 1.0)",
+            borderWidth: 1,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: commonTimeScale,
+          y: {
+            title: {
+              display: true,
+              text: "Giá (USDT)"
+            }
+          }
+        },
+        plugins: {
+          legend: { position: "top" },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const p = ctx.raw;
+                const price = p.y;
+                const notional = p._notional;
+                const time = p._time;
+                return [
+                  "SELL – " + time,
+                  "Price: " + price.toLocaleString("en-US", { maximumFractionDigits: 2 }),
+                  "Notional: " + fmtUsd(notional) + " USDT",
                 ];
               }
             }
