@@ -12,7 +12,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from notify_events import Message
 
 
 import requests
@@ -94,7 +93,6 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
-MESSAGE_CHANNEL = os.environ.get("MESSAGE_CHANNEL")
 
 # Stable salt to derive UUIDv5 from incoming lessonid
 SALT = "548efb19-9741-4e81-9ad1-dddbe062649d"
@@ -431,27 +429,22 @@ def _rsi_latest(symbol: str, interval: str, period: int):
 
 
 def _pushover_notify(title: str, message: str):
-    if not MESSAGE_CHANNEL:
+    if not PUSHOVER_TOKEN or not PUSHOVER_USER:
         return
-    message = Message(message, title, Message.PRIORITY_HIGH, Message.LEVEL_WARNING)
-    # Send a message to your channel in Notify.Events.
-    message.send(MESSAGE_CHANNEL)
-    # if not PUSHOVER_TOKEN or not PUSHOVER_USER:
-    #     return
-    # data = {
-    #     "token": PUSHOVER_TOKEN,
-    #     "user": PUSHOVER_USER,
-    #     "title": title,
-    #     "message": message,
-    #     "priority": 0,
-    #     "sound": "cash",
-    # }
-    # if PUSHOVER_DEVICE:
-    #     data["device"] = PUSHOVER_DEVICE
-    # try:
-    #     requests.post("https://api.pushover.net/1/messages.json", data=data, timeout=15)
-    # except Exception:
-    #     pass
+    data = {
+        "token": PUSHOVER_TOKEN,
+        "user": PUSHOVER_USER,
+        "title": title,
+        "message": message,
+        "priority": 0,
+        "sound": "cash",
+    }
+    if PUSHOVER_DEVICE:
+        data["device"] = PUSHOVER_DEVICE
+    try:
+        requests.post("https://api.pushover.net/1/messages.json", data=data, timeout=15)
+    except Exception:
+        pass
 
 
 def _fmt_dual(tf: str, condition: str, snapshot: Dict[str, Dict[str, float]]):
