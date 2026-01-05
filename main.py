@@ -210,7 +210,7 @@ RSI_TIMEFRAMES = {"1h": "1h", "4h": "4h", "1d": "1d"}
 # ETH TRACKER CONFIG (dùng cho /bot/ethtracker)
 # ------------------------------------------------------------------
 ETH_TRACKER_SYMBOL = os.getenv("ETH_TRACKER_SYMBOL", "ETHUSDT")
-ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "d1")
+ETH_TRACKER_INTERVAL = os.getenv("ETH_TRACKER_INTERVAL", "1d")
 ETH_CYCLE_SIZE = float(os.getenv("ETH_CYCLE_SIZE", "40"))   # số ETH bán/mua mỗi vòng
 ETH_BASE_BALANCE = float(os.getenv("ETH_BASE_BALANCE", "138"))  # tổng ETH ban đầu
 
