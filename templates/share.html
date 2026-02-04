@@ -1085,7 +1085,20 @@
 
             var toolbar = document.createElement('div');
             toolbar.className = 'word-select-toolbar';
-            toolbar.innerHTML = '<button type="button" id="wordSelectAll">Chọn tất cả</button><button type="button" id="wordDeselectAll">Bỏ chọn tất cả</button>';
+            var btnSelectAll = document.createElement('button');
+            btnSelectAll.type = 'button';
+            btnSelectAll.textContent = 'Chọn tất cả';
+            var btnDeselectAll = document.createElement('button');
+            btnDeselectAll.type = 'button';
+            btnDeselectAll.textContent = 'Bỏ chọn tất cả';
+            btnSelectAll.onclick = function() {
+                checkboxes.forEach(function(cb) { cb.checked = true; });
+            };
+            btnDeselectAll.onclick = function() {
+                checkboxes.forEach(function(cb) { cb.checked = false; });
+            };
+            toolbar.appendChild(btnSelectAll);
+            toolbar.appendChild(btnDeselectAll);
 
             var list = document.createElement('div');
             list.className = 'word-select-list';
@@ -1143,13 +1156,6 @@
                 if (e.target === overlay) overlay.remove();
             };
             modal.onclick = function(e) { e.stopPropagation(); };
-
-            document.getElementById('wordSelectAll').onclick = function() {
-                checkboxes.forEach(function(cb) { cb.checked = true; });
-            };
-            document.getElementById('wordDeselectAll').onclick = function() {
-                checkboxes.forEach(function(cb) { cb.checked = false; });
-            };
 
             document.body.appendChild(overlay);
         }
