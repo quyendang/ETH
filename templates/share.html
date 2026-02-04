@@ -175,6 +175,160 @@
             }
         }
         
+        /* Popup chọn từ (ẩn từ khỏi bảng) */
+        .word-select-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .word-select-modal {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            max-width: 480px;
+            width: 100%;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .word-select-header {
+            padding: 20px 24px 16px;
+            border-bottom: 1px solid #e9ecef;
+            flex-shrink: 0;
+        }
+        .word-select-title {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .word-select-hint {
+            margin: 8px 0 0;
+            font-size: 0.875rem;
+            color: #6c757d;
+        }
+        .word-select-toolbar {
+            padding: 10px 24px;
+            display: flex;
+            gap: 12px;
+            border-bottom: 1px solid #eee;
+            flex-shrink: 0;
+        }
+        .word-select-toolbar button {
+            font-size: 0.8125rem;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            background: #fff;
+            color: #495057;
+            cursor: pointer;
+        }
+        .word-select-toolbar button:hover {
+            background: #f8f9fa;
+            border-color: #adb5bd;
+        }
+        .word-select-list {
+            padding: 16px 24px 20px;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 200px;
+            max-height: 50vh;
+        }
+        .word-select-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            margin-bottom: 6px;
+            transition: background 0.15s;
+        }
+        .word-select-item:hover {
+            background: #f8f9fa;
+        }
+        .word-select-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            flex-shrink: 0;
+            accent-color: #007bff;
+        }
+        .word-select-item label {
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+            font-size: 0.9375rem;
+            line-height: 1.4;
+            user-select: none;
+        }
+        .word-select-item .word-text {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .word-select-item .word-meta {
+            font-size: 0.8125rem;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+        .word-select-footer {
+            padding: 16px 24px 20px;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .word-select-footer .btn-cancel {
+            padding: 10px 20px;
+            border-radius: 10px;
+            border: 1px solid #dee2e6;
+            background: #fff;
+            color: #495057;
+            cursor: pointer;
+            font-size: 0.9375rem;
+        }
+        .word-select-footer .btn-cancel:hover {
+            background: #f8f9fa;
+        }
+        .word-select-footer .btn-save {
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: none;
+            background: #007bff;
+            color: #fff;
+            cursor: pointer;
+            font-size: 0.9375rem;
+            font-weight: 500;
+        }
+        .word-select-footer .btn-save:hover {
+            background: #0056b3;
+        }
+        .word-select-close {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #6c757d;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px;
+        }
+        .word-select-close:hover {
+            color: #1a1a2e;
+        }
+
         /* Responsive design for mobile */
         @media (max-width: 768px) {
             .container {
@@ -404,6 +558,9 @@
                     showCustomFormatPopup();
                 }
             });
+
+            // Bắt phím "p" 3 lần liên tiếp để mở popup chọn từ (ẩn từ khỏi bảng)
+            initWordSelectPopupOnKeyP();
             
             // Test print functionality
             console.log('Print event listeners set up successfully');
@@ -864,6 +1021,170 @@
                     message.parentNode.removeChild(message);
                 }
             }, 3000);
+        }
+
+        // --- Popup chọn từ: nhấn "p" 3 lần liên tiếp ---
+        var _pKeyCount = 0;
+        var _pKeyResetTimer = null;
+        var _P_KEY_WINDOW_MS = 800;
+
+        function initWordSelectPopupOnKeyP() {
+            document.addEventListener('keydown', function(event) {
+                var tag = (event.target || event.srcElement).tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+                if (event.ctrlKey || event.altKey || event.metaKey) return;
+
+                if (event.key === 'p' || event.key === 'P') {
+                    event.preventDefault();
+                    _pKeyCount++;
+                    if (_pKeyResetTimer) clearTimeout(_pKeyResetTimer);
+                    if (_pKeyCount >= 3) {
+                        _pKeyCount = 0;
+                        if (_pKeyResetTimer) clearTimeout(_pKeyResetTimer);
+                        showWordSelectPopup();
+                        return;
+                    }
+                    _pKeyResetTimer = setTimeout(function() {
+                        _pKeyCount = 0;
+                        _pKeyResetTimer = null;
+                    }, _P_KEY_WINDOW_MS);
+                } else {
+                    _pKeyCount = 0;
+                    if (_pKeyResetTimer) clearTimeout(_pKeyResetTimer);
+                }
+            });
+        }
+
+        function showWordSelectPopup() {
+            var existing = document.getElementById('wordSelectPopup');
+            if (existing) existing.remove();
+
+            var tbody = document.querySelector('.table tbody');
+            if (!tbody) return;
+            var rows = tbody.querySelectorAll('tr');
+            if (rows.length === 0) return;
+
+            var overlay = document.createElement('div');
+            overlay.id = 'wordSelectPopup';
+            overlay.className = 'word-select-overlay';
+
+            var modal = document.createElement('div');
+            modal.className = 'word-select-modal';
+
+            var header = document.createElement('div');
+            header.className = 'word-select-header';
+            header.style.position = 'relative';
+            header.innerHTML = '<h2 class="word-select-title">Chọn từ hiển thị trên bảng</h2><p class="word-select-hint">Bỏ chọn những từ bạn muốn ẩn khỏi bảng, sau đó nhấn Lưu.</p>';
+            var closeBtn = document.createElement('button');
+            closeBtn.className = 'word-select-close';
+            closeBtn.setAttribute('type', 'button');
+            closeBtn.innerHTML = '&times;';
+            closeBtn.setAttribute('aria-label', 'Đóng');
+            closeBtn.onclick = function() { overlay.remove(); };
+            header.appendChild(closeBtn);
+
+            var toolbar = document.createElement('div');
+            toolbar.className = 'word-select-toolbar';
+            toolbar.innerHTML = '<button type="button" id="wordSelectAll">Chọn tất cả</button><button type="button" id="wordDeselectAll">Bỏ chọn tất cả</button>';
+
+            var list = document.createElement('div');
+            list.className = 'word-select-list';
+
+            var checkboxes = [];
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cells = row.querySelectorAll('td');
+                var wordText = (cells[1] && cells[1].textContent) ? cells[1].textContent.trim().replace(/\s+/g, ' ') : '';
+                var meaningText = (cells[4] && cells[4].textContent) ? cells[4].textContent.trim().replace(/\s+/g, ' ').slice(0, 50) : '';
+                if (meaningText.length === 50) meaningText += '…';
+
+                var item = document.createElement('div');
+                item.className = 'word-select-item';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.id = 'word-cb-' + i;
+                cb.checked = true;
+                cb.setAttribute('data-row-index', i);
+                checkboxes.push(cb);
+                var label = document.createElement('label');
+                label.setAttribute('for', cb.id);
+                label.innerHTML = '<span class="word-text">' + escapeHtml(wordText) + '</span>' +
+                    (meaningText ? '<span class="word-meta">' + escapeHtml(meaningText) + '</span>' : '');
+                item.appendChild(cb);
+                item.appendChild(label);
+                list.appendChild(item);
+            }
+
+            var footer = document.createElement('div');
+            footer.className = 'word-select-footer';
+            var btnCancel = document.createElement('button');
+            btnCancel.type = 'button';
+            btnCancel.className = 'btn-cancel';
+            btnCancel.textContent = 'Hủy';
+            btnCancel.onclick = function() { overlay.remove(); };
+            var btnSave = document.createElement('button');
+            btnSave.type = 'button';
+            btnSave.className = 'btn-save';
+            btnSave.textContent = 'Lưu';
+            btnSave.onclick = function() {
+                applyWordSelectionAndClose(checkboxes, tbody);
+                overlay.remove();
+            };
+            footer.appendChild(btnCancel);
+            footer.appendChild(btnSave);
+
+            modal.appendChild(header);
+            modal.appendChild(toolbar);
+            modal.appendChild(list);
+            modal.appendChild(footer);
+            overlay.appendChild(modal);
+
+            overlay.onclick = function(e) {
+                if (e.target === overlay) overlay.remove();
+            };
+            modal.onclick = function(e) { e.stopPropagation(); };
+
+            document.getElementById('wordSelectAll').onclick = function() {
+                checkboxes.forEach(function(cb) { cb.checked = true; });
+            };
+            document.getElementById('wordDeselectAll').onclick = function() {
+                checkboxes.forEach(function(cb) { cb.checked = false; });
+            };
+
+            document.body.appendChild(overlay);
+        }
+
+        function escapeHtml(s) {
+            if (!s) return '';
+            var div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        function applyWordSelectionAndClose(checkboxes, tbody) {
+            var indicesToRemove = [];
+            checkboxes.forEach(function(cb) {
+                if (!cb.checked) {
+                    var idx = parseInt(cb.getAttribute('data-row-index'), 10);
+                    if (!isNaN(idx)) indicesToRemove.push(idx);
+                }
+            });
+            if (indicesToRemove.length === 0) return;
+
+            indicesToRemove.sort(function(a, b) { return b - a; });
+            var rows = tbody.querySelectorAll('tr');
+            indicesToRemove.forEach(function(idx) {
+                if (rows[idx] && rows[idx].parentNode) rows[idx].parentNode.removeChild(rows[idx]);
+            });
+            reindexTableFirstColumn(tbody);
+        }
+
+        function reindexTableFirstColumn(tbody) {
+            var rows = tbody.querySelectorAll('tr');
+            for (var i = 0; i < rows.length; i++) {
+                var firstCell = rows[i].querySelector('td.index-col');
+                if (firstCell) firstCell.textContent = (i + 1);
+            }
         }
     </script>
 
