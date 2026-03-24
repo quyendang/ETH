@@ -427,10 +427,29 @@ def run_bot():
     df_4h = enrich_4h(df_4h)
     df_1d = enrich_1d(df_1d)
 
-    # ── Get current bar & daily context ──
-    current_4h = df_4h.iloc[-1]
-    price = current_4h["close"]
-    bar_time = current_4h["datetime"]
+    # ── Determine closed vs live bar ──
+    # Nến cuối cùng từ Binance có thể chưa đóng (đang chạy).
+    # SELL signals: chỉ dùng nến ĐÃ ĐÓNG (iloc[-2]) → indicators ổn định
+    # BUYBACK signals: dùng giá REALTIME (iloc[-1]) → phản ứng nhanh khi hit target/stop
+    now_utc = datetime.now(timezone.utc)
+    last_bar_open = df_4h.iloc[-1]["datetime"]
+    last_bar_close_time = last_bar_open + pd.Timedelta(hours=4)
+    live_bar_is_closed = now_utc >= last_bar_close_time.to_pydatetime().replace(
+        tzinfo=timezone.utc) if hasattr(last_bar_close_time, 'to_pydatetime') else True
+
+    # Nến đã đóng hoàn toàn → dùng làm signal nến
+    # Nến chưa đóng → dùng nến trước đó cho SELL, nến hiện tại cho giá realtime
+    if live_bar_is_closed:
+        signal_bar = df_4h.iloc[-1]   # Nến vừa đóng
+        log.info(f"Bar CLOSED: {last_bar_open}")
+    else:
+        signal_bar = df_4h.iloc[-2]   # Nến đóng gần nhất
+        log.info(f"Bar LIVE (chưa đóng): {last_bar_open}, dùng signal từ {df_4h.iloc[-2]['datetime']}")
+
+    # Giá realtime luôn lấy từ nến cuối
+    realtime_price = df_4h.iloc[-1]["close"]
+    signal_price = signal_bar["close"]
+    bar_time = signal_bar["datetime"]
 
     # Match 1D context
     today_str = str(bar_time)[:10]
@@ -445,16 +464,15 @@ def run_bot():
         "adx": float(daily_row.get("adx_14", 0)),
     }
 
-    # ── Dedup: skip if same bar already processed ──
-    bar_hash = hashlib.md5(f"{bar_time}_{price}".encode()).hexdigest()[:12]
-    if bar_hash == state.get("last_signal_hash", ""):
-        log.info(f"Bar {bar_time} already processed — skipping")
-        return
+    # ── Dedup: skip nếu cùng signal bar đã xử lý (cho SELL) ──
+    bar_hash = hashlib.md5(f"{bar_time}_{signal_price}".encode()).hexdigest()[:12]
+    sell_already_processed = (bar_hash == state.get("last_signal_hash", ""))
 
     # ── Log current state ──
+    price = realtime_price  # Dùng giá realtime để hiển thị & tính buyback
     total_coin = state["coin_held"] + state["usdt_held"] / price if price > 0 else state["coin_held"]
     market_phase = "🐻 BEAR" if not daily_ctx["uptrend"] else "🐂 BULL"
-    log.info(f"Bar: {bar_time} | Price: ${price:,.2f} | {market_phase}")
+    log.info(f"Signal bar: {bar_time} | Realtime: ${price:,.2f} | {market_phase}")
     log.info(f"Holdings: {state['coin_held']:.4f} {coin_name} + ${state['usdt_held']:,.2f} USDT "
              f"= {total_coin:.4f} {coin_name} equiv")
     log.info(f"Sell%: {state['current_sell_pct']*100:.0f}% | "
@@ -465,16 +483,21 @@ def run_bot():
     signal_msg = ""
 
     if state["pending_buyback"]:
-        # ── CHECK BUYBACK ──
-        state["bars_since_sell"] += 1
+        # ── CHECK BUYBACK (dùng giá REALTIME — không cần đợi nến đóng) ──
         pchg = (price / state["sell_price"] - 1) * 100
+
+        # Chỉ tăng bars_since_sell khi signal bar mới (tránh đếm trùng)
+        if not sell_already_processed:
+            state["bars_since_sell"] += 1
 
         log.info(f"Pending buyback: sold@${state['sell_price']:,.2f}, "
                  f"now ${price:,.2f} ({pchg:+.2f}%), "
                  f"bars={state['bars_since_sell']}")
 
+        # Dùng signal_bar cho indicator checks (BOUNCE, OVERSOLD)
+        # nhưng pchg dùng realtime price (TARGET, STOP phản ứng nhanh)
         should_buy, reason = check_buyback_signal(
-            current_4h, pchg, state["bars_since_sell"])
+            signal_bar, pchg, state["bars_since_sell"])
 
         if should_buy:
             action = "BUYBACK"
@@ -552,15 +575,21 @@ def run_bot():
 
         if not cooldown_ok:
             log.info(f"Cooldown: {bars_since_last}/{CFG.sell_cooldown_bars} bars")
-            state["bars_since_sell"] = bars_since_last + 1
+            if not sell_already_processed:
+                state["bars_since_sell"] = bars_since_last + 1
+        elif sell_already_processed:
+            # Signal bar đã xử lý rồi → chờ nến mới đóng
+            log.info(f"Signal bar {bar_time} already processed — waiting for next close")
         else:
-            should_sell, sell_reason = check_sell_signal(current_4h, daily_ctx)
+            # SELL dùng signal_bar (nến ĐÃ ĐÓNG) cho indicators
+            should_sell, sell_reason = check_sell_signal(signal_bar, daily_ctx)
 
             if should_sell:
                 action = "SELL"
                 sell_pct = state["current_sell_pct"]
                 sell_amount = state["coin_held"] * sell_pct
                 comm = CFG.commission_pct / 100
+                # Sell ở giá realtime (không phải giá close nến cũ)
                 usdt_received = sell_amount * price * (1 - comm)
 
                 state["coin_held"] -= sell_amount
@@ -571,7 +600,8 @@ def run_bot():
                 state["bars_since_sell"] = 0
 
                 trade_record = {
-                    "time": str(bar_time),
+                    "time": str(datetime.now(timezone.utc)),
+                    "signal_bar": str(bar_time),
                     "action": "SELL",
                     "reason": sell_reason,
                     "price": round(price, 2),
@@ -598,7 +628,7 @@ def run_bot():
                     f"• Stop:   ${stop_price:,.2f} (+{CFG.stop_rise_pct}%)\n"
                     f"• Timeout: {CFG.timeout_bars} bars ({CFG.timeout_bars*4}h)\n\n"
                     f"📊 Còn lại: {state['coin_held']:.4f} {coin_name}\n"
-                    f"RSI={current_4h['rsi_14']:.1f} MACD_hist={current_4h['macd_hist']:.2f}"
+                    f"RSI={signal_bar['rsi_14']:.1f} MACD_hist={signal_bar['macd_hist']:.2f}"
                 )
 
                 send_pushover(
