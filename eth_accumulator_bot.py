@@ -327,6 +327,107 @@ def send_pushover(title: str, message: str, priority: int = 0,
         return False
 
 
+def send_startup_notification(state: Dict, coin_name: str = "ETH"):
+    """Gửi thông báo khi bot khởi động."""
+    coin = state.get("coin_held", 0)
+    usdt = state.get("usdt_held", 0)
+    pending = state.get("pending_buyback", False)
+    wins = state.get("total_wins", 0)
+    losses = state.get("total_losses", 0)
+    sell_pct = state.get("current_sell_pct", 1.0)
+    symbol = os.environ.get("COIN_SYMBOL", "ETHUSDT")
+
+    if pending:
+        sp = state.get("sell_price", 0)
+        status = f"⏳ Chờ buyback — sold ${sp:,.0f}"
+    else:
+        status = f"💼 Đang giữ {coin:.2f} {coin_name}"
+
+    msg = (
+        f"Bot khởi động thành công ✅\n\n"
+        f"Pair: {symbol}\n"
+        f"Trạng thái: {status}\n"
+        f"USDT: ${usdt:,.2f}\n"
+        f"Sell%: {sell_pct*100:.0f}% | W/L: {wins}/{losses}"
+    )
+
+    send_pushover(f"🤖 {coin_name} Bot Online", msg, priority=0, sound="anhoi")
+
+
+def send_market_analysis(df_4h: pd.DataFrame, price: float,
+                          state: Dict, daily_ctx: Dict, coin_name: str = "ETH"):
+    """Gửi phân tích thị trường ngắn gọn mỗi 4h."""
+    row = df_4h.iloc[-1]
+
+    uptrend = daily_ctx.get("uptrend", True)
+    trend_txt = "🐂 BULL" if uptrend else "🐻 BEAR"
+
+    rsi = row["rsi_14"]
+    macd_hist = row["macd_hist"]
+    sell_score = int(row.get("sell_score", 0))
+    ema34 = row["ema_34"]
+    ema50 = row["ema_50"]
+    bb_upper = row["bb_upper"]
+    bb_lower = row["bb_lower"]
+    stoch_k = row["stoch_k"]
+    adx = row["adx_14"]
+
+    macd_dir = "↗" if macd_hist > 0 else "↘"
+
+    # Khuyến nghị
+    if not uptrend and rsi > 65 and sell_score >= 3:
+        rec = "⚠️ XEM XÉT BÁN"
+        detail = (
+            f"Vùng bán: ${price:,.0f}–${bb_upper:,.0f}\n"
+            f"Mua lại: ${price*(1-0.02):,.0f} (-2%)\n"
+            f"Cắt lỗ: ${price*(1+0.015):,.0f} (+1.5%)"
+        )
+    elif rsi < 32 or (stoch_k < 25 and rsi < 45):
+        rec = "📈 VÙNG MUA"
+        detail = (
+            f"Hỗ trợ: ${bb_lower:,.0f}\n"
+            f"Kháng cự gần: ${ema34:,.0f}\n"
+            f"Kháng cự xa: ${ema50:,.0f}"
+        )
+    elif not uptrend and rsi > 55 and sell_score >= 2:
+        rec = "👁 THEO DÕI"
+        detail = (
+            f"RSI {rsi:.0f}, Score {sell_score}/6\n"
+            f"Bán nếu RSI vượt 65+\n"
+            f"Hỗ trợ: ${bb_lower:,.0f}"
+        )
+    else:
+        rec = "⏸ GIỮ/CHỜ"
+        detail = (
+            f"Hỗ trợ: ${max(bb_lower, ema50):,.0f}\n"
+            f"Kháng cự: ${bb_upper:,.0f}"
+        )
+
+    # Trạng thái bot
+    if state.get("pending_buyback"):
+        sp = state.get("sell_price", 0)
+        pchg = (price / sp - 1) * 100 if sp > 0 else 0
+        bot_status = f"⏳ Chờ buyback — sold ${sp:,.0f} ({pchg:+.1f}%)"
+    else:
+        bot_status = f"💼 {state.get('coin_held', 0):.2f} {coin_name}"
+
+    msg = (
+        f"${price:,.0f} | {trend_txt}\n"
+        f"RSI {rsi:.1f} | Stoch {stoch_k:.0f} | Score {sell_score}/6\n"
+        f"MACD {macd_dir} | ADX {adx:.0f}\n\n"
+        f"{rec}\n"
+        f"{detail}\n\n"
+        f"{bot_status} | "
+        f"W{state.get('total_wins',0)}/L{state.get('total_losses',0)}"
+    )
+
+    rec_word = rec.split()[-1]
+    send_pushover(
+        f"📊 {coin_name} ${price:,.0f} | {rec_word}",
+        msg, priority=0, sound="anhoi",
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 #  SIGNAL ENGINE
 # ═══════════════════════════════════════════════════════════════
@@ -564,7 +665,7 @@ def run_bot():
                 f"{emoji} BUY {coin_name} — {reason} ({pchg:+.1f}%)",
                 signal_msg,
                 priority=priority,
-                sound="cashregister" if not is_loss else "falling",
+                sound="anhoi",
             )
 
     else:
@@ -635,7 +736,7 @@ def run_bot():
                     f"🔔 SELL {sell_pct*100:.0f}% {coin_name} @ ${price:,.0f}",
                     signal_msg,
                     priority=1,
-                    sound="pushover",
+                    sound="anhoi",
                 )
 
             else:
@@ -660,6 +761,13 @@ def run_bot():
         state["trade_history"] = state["trade_history"][-100:]
 
     save_state(state, state_file)
+
+    # ── Gửi phân tích thị trường mỗi 4h ──
+    try:
+        send_market_analysis(df_4h, price, state, daily_ctx, coin_name)
+    except Exception as e:
+        log.warning(f"Market analysis notification failed: {e}")
+
     log.info("═══ Done ═══\n")
 
 
@@ -713,6 +821,15 @@ def run_healthcheck():
 
 def main():
     mode = os.environ.get("BOT_MODE", "once")
+    state_file = os.environ.get("STATE_FILE", "state.json")
+    coin_name = os.environ.get("COIN_NAME", "ETH")
+
+    # ── Thông báo khởi động (gửi 1 lần) ──
+    try:
+        startup_state = load_state(state_file)
+        send_startup_notification(startup_state, coin_name)
+    except Exception as e:
+        log.warning(f"Startup notification failed: {e}")
 
     if mode == "server":
         # Server mode: health check + periodic runs
