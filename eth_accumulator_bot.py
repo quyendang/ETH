@@ -254,6 +254,7 @@ DEFAULT_STATE = {
     "total_lost": 0.0,
     "trade_history": [],
     "last_signal_hash": "",
+    "last_analysis_time": "",
     "created_at": "",
 }
 
@@ -763,10 +764,23 @@ def run_bot():
     save_state(state, state_file)
 
     # ── Gửi phân tích thị trường mỗi 4h ──
-    try:
-        send_market_analysis(df_4h, price, state, daily_ctx, coin_name)
-    except Exception as e:
-        log.warning(f"Market analysis notification failed: {e}")
+    analysis_interval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
+    last_analysis = state.get("last_analysis_time", "")
+    now_ts = datetime.now(timezone.utc)
+    should_send_analysis = (
+        not last_analysis or
+        (now_ts - datetime.fromisoformat(last_analysis)).total_seconds() >= analysis_interval
+    )
+    if should_send_analysis:
+        try:
+            send_market_analysis(df_4h, price, state, daily_ctx, coin_name)
+            state["last_analysis_time"] = now_ts.isoformat()
+            save_state(state, state_file)
+        except Exception as e:
+            log.warning(f"Market analysis notification failed: {e}")
+    else:
+        remaining = analysis_interval - (now_ts - datetime.fromisoformat(last_analysis)).total_seconds()
+        log.info(f"Market analysis: next in {remaining/60:.0f} min")
 
     log.info("═══ Done ═══\n")
 
