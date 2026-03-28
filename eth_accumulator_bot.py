@@ -764,7 +764,7 @@ def run_bot():
     save_state(state, state_file)
 
     # ── Gửi phân tích thị trường mỗi 4h ──
-    analysis_interxval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
+    analysis_interval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
     last_analysis = state.get("last_analysis_time", "")
     now_ts = datetime.now(timezone.utc)
     should_send_analysis = (
