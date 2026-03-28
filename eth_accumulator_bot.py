@@ -375,6 +375,58 @@ def send_market_analysis(df_4h: pd.DataFrame, price: float,
 
     macd_dir = "↗" if macd_hist > 0 else "↘"
 
+    # ── Tính bias MUA/BÁN ───────────────────────────────────────
+    bull_pts = 0
+    bear_pts = 0
+
+    # RSI
+    if rsi < 40:
+        bull_pts += 1
+    elif rsi > 60:
+        bear_pts += 1
+
+    # MACD histogram
+    if macd_hist > 0:
+        bull_pts += 1
+    else:
+        bear_pts += 1
+
+    # Stochastic
+    if stoch_k < 30:
+        bull_pts += 1
+    elif stoch_k > 70:
+        bear_pts += 1
+
+    # Giá so với EMA34/EMA50
+    if price > ema34 and price > ema50:
+        bull_pts += 1
+    elif price < ema34 and price < ema50:
+        bear_pts += 1
+
+    # Sell score
+    if sell_score >= 3:
+        bear_pts += 1
+    elif sell_score == 0:
+        bull_pts += 1
+
+    # Xu hướng daily
+    if uptrend:
+        bull_pts += 1
+    else:
+        bear_pts += 1
+
+    total_pts = bull_pts + bear_pts
+    if total_pts == 0:
+        bias_txt = "⚖️ TRUNG LẬP"
+    else:
+        ratio = bull_pts / total_pts
+        if ratio >= 0.65:
+            bias_txt = f"🟢 NGHIÊNG MUA ({bull_pts}/{total_pts})"
+        elif ratio <= 0.35:
+            bias_txt = f"🔴 NGHIÊNG BÁN ({bear_pts}/{total_pts})"
+        else:
+            bias_txt = f"⚖️ TRUNG LẬP ({bull_pts}B/{bear_pts}S)"
+
     # Khuyến nghị
     if not uptrend and rsi > 65 and sell_score >= 3:
         rec = "⚠️ XEM XÉT BÁN"
@@ -415,7 +467,8 @@ def send_market_analysis(df_4h: pd.DataFrame, price: float,
     msg = (
         f"${price:,.0f} | {trend_txt}\n"
         f"RSI {rsi:.1f} | Stoch {stoch_k:.0f} | Score {sell_score}/6\n"
-        f"MACD {macd_dir} | ADX {adx:.0f}\n\n"
+        f"MACD {macd_dir} | ADX {adx:.0f}\n"
+        f"Bias: {bias_txt}\n\n"
         f"{rec}\n"
         f"{detail}\n\n"
         f"{bot_status} | "
