@@ -666,7 +666,7 @@ def run_bot():
                 f"{emoji} BUY {coin_name} — {reason} ({pchg:+.1f}%)",
                 signal_msg,
                 priority=priority,
-                sound="anhoi",
+                sound="belll",
             )
 
     else:
@@ -737,7 +737,7 @@ def run_bot():
                     f"🔔 SELL {sell_pct*100:.0f}% {coin_name} @ ${price:,.0f}",
                     signal_msg,
                     priority=1,
-                    sound="anhoi",
+                    sound="belll",
                 )
 
             else:
@@ -764,7 +764,7 @@ def run_bot():
     save_state(state, state_file)
 
     # ── Gửi phân tích thị trường mỗi 4h ──
-    analysis_interval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
+    analysis_interxval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
     last_analysis = state.get("last_analysis_time", "")
     now_ts = datetime.now(timezone.utc)
     should_send_analysis = (
