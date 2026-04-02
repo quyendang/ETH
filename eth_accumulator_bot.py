@@ -427,33 +427,34 @@ def send_market_analysis(df_4h: pd.DataFrame, price: float,
         else:
             bias_txt = f"⚖️ TRUNG LẬP ({bull_pts}B/{bear_pts}S)"
 
+    # Tính vùng mua/bán chung dùng cho mọi khuyến nghị
+    buy_zone = min(bb_lower, ema50)      # Vùng mua: hỗ trợ thấp hơn
+    sell_zone = max(bb_upper, ema34)     # Vùng bán: kháng cự cao hơn
+
     # Khuyến nghị
     if not uptrend and rsi > 65 and sell_score >= 3:
         rec = "⚠️ XEM XÉT BÁN"
         detail = (
-            f"Vùng bán: ${price:,.0f}–${bb_upper:,.0f}\n"
-            f"Mua lại: ${price*(1-0.02):,.0f} (-2%)\n"
-            f"Cắt lỗ: ${price*(1+0.015):,.0f} (+1.5%)"
+            f"🔴 Bán tại: ${price:,.0f}–${bb_upper:,.0f}\n"
+            f"🟢 Mua lại: ${price*(1-0.02):,.0f} (-2%) | Cắt lỗ: ${price*(1+0.015):,.0f} (+1.5%)"
         )
     elif rsi < 32 or (stoch_k < 25 and rsi < 45):
         rec = "📈 VÙNG MUA"
         detail = (
-            f"Hỗ trợ: ${bb_lower:,.0f}\n"
-            f"Kháng cự gần: ${ema34:,.0f}\n"
-            f"Kháng cự xa: ${ema50:,.0f}"
+            f"🟢 Mua tại: ${buy_zone:,.0f}–${price:,.0f}\n"
+            f"🎯 Mục tiêu: ${ema34:,.0f} | Xa hơn: ${ema50:,.0f}"
         )
     elif not uptrend and rsi > 55 and sell_score >= 2:
         rec = "👁 THEO DÕI"
         detail = (
-            f"RSI {rsi:.0f}, Score {sell_score}/6\n"
-            f"Bán nếu RSI vượt 65+\n"
-            f"Hỗ trợ: ${bb_lower:,.0f}"
+            f"🔴 Bán nếu lên: ${sell_zone:,.0f} (RSI cần >65)\n"
+            f"🟢 Mua nếu về: ${buy_zone:,.0f} | Hỗ trợ: ${bb_lower:,.0f}"
         )
     else:
         rec = "⏸ GIỮ/CHỜ"
         detail = (
-            f"Hỗ trợ: ${max(bb_lower, ema50):,.0f}\n"
-            f"Kháng cự: ${bb_upper:,.0f}"
+            f"🟢 Mua nếu về: ${buy_zone:,.0f}\n"
+            f"🔴 Bán nếu lên: ${sell_zone:,.0f}"
         )
 
     # Trạng thái bot
@@ -582,6 +583,14 @@ def run_bot():
     df_4h = enrich_4h(df_4h)
     df_1d = enrich_1d(df_1d)
 
+    # ── Validate DataFrame size ──
+    if len(df_4h) < 2:
+        log.error(f"Insufficient 4H data: {len(df_4h)} rows (need ≥2), aborting")
+        return
+    if len(df_1d) < 1:
+        log.error(f"Insufficient 1D data: {len(df_1d)} rows (need ≥1), aborting")
+        return
+
     # ── Determine closed vs live bar ──
     # Nến cuối cùng từ Binance có thể chưa đóng (đang chạy).
     # SELL signals: chỉ dùng nến ĐÃ ĐÓNG (iloc[-2]) → indicators ổn định
@@ -598,7 +607,7 @@ def run_bot():
         signal_bar = df_4h.iloc[-1]   # Nến vừa đóng
         log.info(f"Bar CLOSED: {last_bar_open}")
     else:
-        signal_bar = df_4h.iloc[-2]   # Nến đóng gần nhất
+        signal_bar = df_4h.iloc[-2]   # Nến đóng gần nh���t
         log.info(f"Bar LIVE (chưa đóng): {last_bar_open}, dùng signal từ {df_4h.iloc[-2]['datetime']}")
 
     # Giá realtime luôn lấy từ nến cuối
@@ -625,7 +634,7 @@ def run_bot():
 
     # ── Log current state ──
     price = realtime_price  # Dùng giá realtime để hiển thị & tính buyback
-    total_coin = state["coin_held"] + state["usdt_held"] / price if price > 0 else state["coin_held"]
+    total_coin = (state["coin_held"] + state["usdt_held"] / price) if price > 0 else state["coin_held"]
     market_phase = "🐻 BEAR" if not daily_ctx["uptrend"] else "🐂 BULL"
     log.info(f"Signal bar: {bar_time} | Realtime: ${price:,.2f} | {market_phase}")
     log.info(f"Holdings: {state['coin_held']:.4f} {coin_name} + ${state['usdt_held']:,.2f} USDT "
@@ -639,7 +648,13 @@ def run_bot():
 
     if state["pending_buyback"]:
         # ── CHECK BUYBACK (dùng giá REALTIME — không cần đợi nến đóng) ──
-        pchg = (price / state["sell_price"] - 1) * 100
+        sell_price = state["sell_price"]
+        if not sell_price or sell_price <= 0:
+            log.error(f"Invalid sell_price in state: {sell_price}, resetting pending_buyback")
+            state["pending_buyback"] = False
+            save_state(state, state_file)
+            return
+        pchg = (price / sell_price - 1) * 100
 
         # Chỉ tăng bars_since_sell khi signal bar mới (tránh đếm trùng)
         if not sell_already_processed:
@@ -657,7 +672,7 @@ def run_bot():
         if should_buy:
             action = "BUYBACK"
             comm = CFG.commission_pct / 100
-            coin_bought = state["usdt_held"] / price * (1 - comm)
+            coin_bought = state["usdt_held"] / price * (1 - comm) if price > 0 else 0.0
             coin_gained = coin_bought - state["coin_sold"]
             is_loss = reason in ("STOP", "TIMEOUT") or coin_gained < 0
 
@@ -820,9 +835,14 @@ def run_bot():
     analysis_interval = int(os.environ.get("ANALYSIS_INTERVAL", "14400"))  # 4h default
     last_analysis = state.get("last_analysis_time", "")
     now_ts = datetime.now(timezone.utc)
+    try:
+        last_analysis_dt = datetime.fromisoformat(last_analysis) if last_analysis else None
+    except ValueError:
+        log.warning(f"Invalid last_analysis_time in state: {last_analysis!r}, resetting")
+        last_analysis_dt = None
     should_send_analysis = (
-        not last_analysis or
-        (now_ts - datetime.fromisoformat(last_analysis)).total_seconds() >= analysis_interval
+        last_analysis_dt is None or
+        (now_ts - last_analysis_dt).total_seconds() >= analysis_interval
     )
     if should_send_analysis:
         try:
@@ -832,7 +852,7 @@ def run_bot():
         except Exception as e:
             log.warning(f"Market analysis notification failed: {e}")
     else:
-        remaining = analysis_interval - (now_ts - datetime.fromisoformat(last_analysis)).total_seconds()
+        remaining = analysis_interval - (now_ts - last_analysis_dt).total_seconds()
         log.info(f"Market analysis: next in {remaining/60:.0f} min")
 
     log.info("═══ Done ═══\n")
@@ -876,10 +896,13 @@ def run_healthcheck():
             pass  # Suppress access logs
 
     port = int(os.environ.get("PORT", "8000"))
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    log.info(f"Health check server on :{port}")
+    try:
+        server = HTTPServer(("0.0.0.0", port), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        log.info(f"Health check server on :{port}")
+    except OSError as e:
+        log.error(f"Health check server failed to start on port {port}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -911,7 +934,7 @@ def main():
                 log.exception(f"Bot error: {e}")
                 try:
                     send_pushover("❌ Bot Error", str(e)[:500], priority=1, sound="siren")
-                except:
+                except Exception:
                     pass
             time.sleep(interval)
 
