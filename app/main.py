@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -415,6 +415,7 @@ async def symbol_dashboard(request: Request, symbol: str):
 
     if not closes:
         return templates.TemplateResponse(
+            request,
             "symbol_dashboard.html",
             {
                 "request": request,
@@ -503,6 +504,7 @@ async def symbol_dashboard(request: Request, symbol: str):
         logging.error("[SYMBOL DASH] run_symbol_tracker_once failed for %s: %s", symbol, e)
 
     return templates.TemplateResponse(
+        request,
         "symbol_dashboard.html",
         {
             "request": request,
