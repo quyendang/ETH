@@ -388,8 +388,7 @@ def run_tracker(symbol: str):
     return run_symbol_tracker_once(symbol, send_notify=False)
 
 
-@router.get("/{symbol}", response_class=HTMLResponse)
-async def symbol_dashboard(request: Request, symbol: str):
+async def _render_symbol_dashboard(request: Request, symbol: str):
     symbol = symbol.upper()
 
     try:
@@ -525,7 +524,7 @@ async def symbol_dashboard(request: Request, symbol: str):
 
 @app.get("/")
 def home_redirect():
-    return RedirectResponse(url="/bots/ETHUSDT", status_code=307)
+    return RedirectResponse(url="/ETHUSDT", status_code=307)
 
 
 @app.get("/health")
@@ -535,6 +534,16 @@ def health():
         "service": "qapi-crypto",
         "time_utc": datetime.utcnow().isoformat() + "Z",
     }
+
+
+@app.get("/ETHUSDT", response_class=HTMLResponse)
+async def ethusdt_dashboard(request: Request):
+    return await _render_symbol_dashboard(request, "ETHUSDT")
+
+
+@app.get("/BTCUSDT", response_class=HTMLResponse)
+async def btcusdt_dashboard(request: Request):
+    return await _render_symbol_dashboard(request, "BTCUSDT")
 
 
 app.include_router(router)

@@ -2,7 +2,7 @@
 
 Project tách riêng từ QAPI cho các tính năng crypto:
 - Bot theo dõi giá + tín hiệu (`/bots/run/{symbol}`)
-- Dashboard symbol (`/bots/{symbol}`)
+- Dashboard symbol (`/ETHUSDT`, `/BTCUSDT`)
 - Bot scheduler chạy cố định 2 cặp: `ETHUSDT`, `BTCUSDT`
 
 ## Local run
@@ -16,8 +16,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Mở:
-- `http://localhost:8000/bots/ETHUSDT`
-- `http://localhost:8000/bots/BTCUSDT`
+- `http://localhost:8000/ETHUSDT`
+- `http://localhost:8000/BTCUSDT`
 - `http://localhost:8000/health`
 
 ## ENV cần cho production
