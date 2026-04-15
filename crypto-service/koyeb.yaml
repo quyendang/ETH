@@ -1,0 +1,29 @@
+services:
+  - name: qapi-crypto
+    type: web
+    docker:
+      dockerfile: Dockerfile
+    env:
+      - key: PORT
+        value: "8000"
+      - key: SUPABASE_URL
+        value: ""
+      - key: SUPABASE_KEY
+        value: ""
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: ""
+      - key: PUSHOVER_TOKEN
+        value: ""
+      - key: PUSHOVER_USER
+        value: ""
+      - key: PUSHOVER_DEVICE
+        value: ""
+      - key: RSI_PERIOD
+        value: "14"
+      - key: TRACKER_INTERVAL
+        value: "4h"
+      - key: TRACKER_CHECK_MINUTES
+        value: "10"
+    ports:
+      - port: 8000
+        protocol: http
