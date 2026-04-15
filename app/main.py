@@ -1,14 +1,13 @@
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from supabase import Client, create_client
 
 logging.basicConfig(level=logging.INFO)
 
@@ -33,35 +32,9 @@ MACD_SLOW = int(os.getenv("ETH_MACD_SLOW", "26"))
 MACD_SIGNAL = int(os.getenv("ETH_MACD_SIGNAL", "9"))
 TRACKER_CHECK_MINUTES = int(os.getenv("TRACKER_CHECK_MINUTES", "10"))
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-supabase: Optional[Client] = None
-supabase_admin: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-
 _rsi_last_values: Dict[str, Dict[str, Dict[str, float]]] = {}
 _rsi_last_state: Dict[str, Dict[str, str]] = {sym: {TRACKER_INTERVAL: "unknown"} for sym in TRACKED_SYMBOLS}
 _rsi_last_run: float = 0.0
-
-
-def _parse_utc_and_vn_time(raw: Any):
-    if raw is None:
-        return None, None
-    try:
-        dt_utc = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
-        if dt_utc.tzinfo is None:
-            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-        else:
-            dt_utc = dt_utc.astimezone(timezone.utc)
-        dt_vn = dt_utc + timedelta(hours=7)
-        return dt_utc, dt_vn.strftime("%H:%M, %Y-%m-%d")
-    except Exception:
-        return None, None
 
 
 def _rsi_fetch_klines(symbol: str, interval: str, limit: int = 200):
@@ -415,225 +388,6 @@ def run_tracker(symbol: str):
     return run_symbol_tracker_once(symbol, send_notify=False)
 
 
-@router.get("/big", response_class=HTMLResponse)
-async def big_trades_dashboard(request: Request):
-    symbols = ["BTCUSDT", "ETHUSDT"]
-
-    context = {
-        "request": request,
-        "has_data": False,
-        "summary": {},
-        "buckets": {},
-        "buckets_chart": {},
-        "exchange_summary": {},
-        "last_trades": {},
-        "from_time": None,
-        "to_time": datetime.utcnow().replace(tzinfo=timezone.utc),
-        "bubble_data": {},
-    }
-
-    if not supabase_admin:
-        return templates.TemplateResponse("big_dashboard.html", context)
-
-    try:
-        resp = (
-            supabase_admin.table("big_trades")
-            .select("*")
-            .in_("symbol", symbols)
-            .gt("notional_usdt", 500000)
-            .order("trade_time", desc=True)
-            .limit(10000)
-            .execute()
-        )
-        rows = resp.data or []
-    except Exception as e:
-        logging.error("[BIG_TRADES] Error fetch big_trades: %s", e)
-        rows = []
-
-    if not rows:
-        return templates.TemplateResponse("big_dashboard.html", context)
-
-    summary_notional = {"BTCUSDT": {"BUY": 0.0, "SELL": 0.0}, "ETHUSDT": {"BUY": 0.0, "SELL": 0.0}}
-    summary_counts = {"BTCUSDT": {"BUY": 0, "SELL": 0}, "ETHUSDT": {"BUY": 0, "SELL": 0}}
-    largest_trades = {
-        "BTCUSDT": {"BUY": {"notional": 0.0, "price": None, "qty": None, "time_vn": None}, "SELL": {"notional": 0.0, "price": None, "qty": None, "time_vn": None}},
-        "ETHUSDT": {"BUY": {"notional": 0.0, "price": None, "qty": None, "time_vn": None}, "SELL": {"notional": 0.0, "price": None, "qty": None, "time_vn": None}},
-    }
-    buckets = {"BTCUSDT": {}, "ETHUSDT": {}}
-    exchange_stats = {"BTCUSDT": {}, "ETHUSDT": {}}
-    last_trades_map = {"BTCUSDT": [], "ETHUSDT": []}
-    bubble_buckets = {"BTCUSDT": {}, "ETHUSDT": {}}
-
-    from_dt_utc = None
-    to_dt_utc = None
-
-    for row in rows:
-        symbol = (row.get("symbol") or "").upper()
-        side = (row.get("side") or "").upper()
-        if symbol not in summary_notional or side not in ("BUY", "SELL"):
-            continue
-
-        dt_utc, vn_str = _parse_utc_and_vn_time(row.get("trade_time"))
-        if dt_utc is not None:
-            if from_dt_utc is None or dt_utc < from_dt_utc:
-                from_dt_utc = dt_utc
-            if to_dt_utc is None or dt_utc > to_dt_utc:
-                to_dt_utc = dt_utc
-
-        try:
-            price = float(row.get("price") or 0)
-            notional = float(row.get("notional_usdt") or 0)
-            qty = float(row.get("qty") or 0)
-        except Exception:
-            continue
-
-        exchange = (row.get("exchange") or "Unknown").title()
-        summary_notional[symbol][side] += notional
-        summary_counts[symbol][side] += 1
-
-        if notional > largest_trades[symbol][side]["notional"]:
-            largest_trades[symbol][side] = {"notional": notional, "price": price, "qty": qty, "time_vn": vn_str}
-
-        step = 1000.0 if symbol == "BTCUSDT" else 50.0
-        idx = int(price // step)
-        low = idx * step
-        high = (idx + 1) * step
-        if idx not in buckets[symbol]:
-            buckets[symbol][idx] = {"low": low, "high": high, "BUY": 0.0, "SELL": 0.0, "buy_count": 0, "sell_count": 0}
-        buckets[symbol][idx][side] += notional
-        buckets[symbol][idx]["buy_count" if side == "BUY" else "sell_count"] += 1
-
-        if exchange not in exchange_stats[symbol]:
-            exchange_stats[symbol][exchange] = {"buy": 0.0, "sell": 0.0, "buy_count": 0, "sell_count": 0}
-        if side == "BUY":
-            exchange_stats[symbol][exchange]["buy"] += notional
-            exchange_stats[symbol][exchange]["buy_count"] += 1
-        else:
-            exchange_stats[symbol][exchange]["sell"] += notional
-            exchange_stats[symbol][exchange]["sell_count"] += 1
-
-        if dt_utc is not None:
-            last_trades_map[symbol].append({
-                "dt_utc": dt_utc,
-                "symbol": symbol,
-                "side": side,
-                "price": price,
-                "qty": qty,
-                "notional": notional,
-                "exchange": exchange,
-                "time_vn": vn_str,
-            })
-
-            vn_time = dt_utc.astimezone(timezone(timedelta(hours=7)))
-            bucket_hour = (vn_time.hour // 2) * 2
-            bucket_start = vn_time.replace(hour=bucket_hour, minute=0, second=0, microsecond=0)
-            key = (side, bucket_start)
-            if key not in bubble_buckets[symbol]:
-                bubble_buckets[symbol][key] = {"total_notional": 0.0, "price_weighted_sum": 0.0, "side": side, "time": bucket_start}
-            bubble_buckets[symbol][key]["total_notional"] += notional
-            bubble_buckets[symbol][key]["price_weighted_sum"] += price * notional
-
-    summary_view = {}
-    buckets_view = {}
-    buckets_chart = {}
-    exchange_summary = {}
-    last_trades_view = {}
-    bubble_data = {}
-
-    for sym in symbols:
-        buy_val = summary_notional[sym]["BUY"]
-        sell_val = summary_notional[sym]["SELL"]
-        total = buy_val + sell_val
-        pct_buy = buy_val / total * 100.0 if total > 0 else 0.0
-        pct_sell = sell_val / total * 100.0 if total > 0 else 0.0
-
-        summary_view[sym] = {
-            "buy": buy_val,
-            "sell": sell_val,
-            "total": total,
-            "pct_buy": pct_buy,
-            "pct_sell": pct_sell,
-            "buy_count": summary_counts[sym]["BUY"],
-            "sell_count": summary_counts[sym]["SELL"],
-            "largest_buy": largest_trades[sym]["BUY"],
-            "largest_sell": largest_trades[sym]["SELL"],
-        }
-
-        rows_list = []
-        for _, info in buckets[sym].items():
-            buy = info["BUY"]
-            sell = info["SELL"]
-            rows_list.append({
-                "range_str": f"{info['low']:.0f} – {info['high']:.0f}",
-                "buy": buy,
-                "sell": sell,
-                "total": buy + sell,
-                "dominance": "BUY" if buy > sell else ("SELL" if sell > buy else "BALANCED"),
-                "buy_count": info["buy_count"],
-                "sell_count": info["sell_count"],
-            })
-        rows_list.sort(key=lambda r: float(r["range_str"].split("–")[0]))
-        buckets_view[sym] = rows_list
-        buckets_chart[sym] = {
-            "labels": [r["range_str"] for r in rows_list],
-            "buy_data": [r["buy"] for r in rows_list],
-            "sell_data": [r["sell"] for r in rows_list],
-        }
-
-        ex_rows = []
-        for ex, st in exchange_stats[sym].items():
-            total_ex = st["buy"] + st["sell"]
-            ex_rows.append({
-                "exchange": ex,
-                "buy": st["buy"],
-                "sell": st["sell"],
-                "total": total_ex,
-                "buy_count": st["buy_count"],
-                "sell_count": st["sell_count"],
-                "pct_buy": st["buy"] / total_ex * 100.0 if total_ex else 0.0,
-                "pct_sell": st["sell"] / total_ex * 100.0 if total_ex else 0.0,
-            })
-        ex_rows.sort(key=lambda r: r["total"], reverse=True)
-        exchange_summary[sym] = ex_rows
-
-        lt = last_trades_map[sym]
-        lt.sort(key=lambda x: x["dt_utc"], reverse=True)
-        for item in lt:
-            item.pop("dt_utc", None)
-        last_trades_view[sym] = lt[:10]
-
-        points = []
-        for (_, bucket_start), info in bubble_buckets[sym].items():
-            total_notional = info["total_notional"]
-            if total_notional <= 0:
-                continue
-            points.append({
-                "side": info["side"],
-                "time_str": bucket_start.strftime("%Y-%m-%d %H:%M"),
-                "ts_ms": int(bucket_start.timestamp() * 1000),
-                "price": info["price_weighted_sum"] / total_notional,
-                "notional": total_notional,
-            })
-        points.sort(key=lambda p: p["ts_ms"])
-        bubble_data[sym] = points
-
-    context.update(
-        {
-            "has_data": True,
-            "summary": summary_view,
-            "buckets": buckets_view,
-            "buckets_chart": buckets_chart,
-            "exchange_summary": exchange_summary,
-            "last_trades": last_trades_view,
-            "from_time": from_dt_utc or context["to_time"],
-            "to_time": to_dt_utc or context["to_time"],
-            "bubble_data": bubble_data,
-        }
-    )
-
-    return templates.TemplateResponse("big_dashboard.html", context)
-
-
 @router.get("/{symbol}", response_class=HTMLResponse)
 async def symbol_dashboard(request: Request, symbol: str):
     symbol = symbol.upper()
@@ -778,7 +532,6 @@ def health():
         "ok": True,
         "service": "qapi-crypto",
         "time_utc": datetime.utcnow().isoformat() + "Z",
-        "supabase_configured": bool(supabase_admin),
     }
 
 

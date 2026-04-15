@@ -3,7 +3,6 @@
 Project tách riêng từ QAPI cho các tính năng crypto:
 - Bot theo dõi giá + tín hiệu (`/bots/run/{symbol}`)
 - Dashboard symbol (`/bots/{symbol}`)
-- Big trades dashboard (`/bots/big`)
 - Bot scheduler chạy cố định 2 cặp: `ETHUSDT`, `BTCUSDT`
 
 ## Local run
@@ -19,14 +18,10 @@ uvicorn app.main:app --reload --port 8000
 Mở:
 - `http://localhost:8000/bots/ETHUSDT`
 - `http://localhost:8000/bots/BTCUSDT`
-- `http://localhost:8000/bots/big`
 - `http://localhost:8000/health`
 
 ## ENV cần cho production
 
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
 - `RSI_PERIOD` (mặc định `14`)
 - `TRACKER_INTERVAL` (mặc định `4h`)
 - `TRACKER_CHECK_MINUTES` (mặc định `10`)
@@ -45,9 +40,6 @@ Mở:
 ### Cách 2: Dùng `koyeb.yaml`
 - Đặt root deploy là `crypto-service` và dùng file `koyeb.yaml` trong folder này.
 
-## Ghi chú DB
+## Ghi chú
 
-Service này dùng các bảng Supabase đang có trong project cũ:
-- `big_trades`
-
-Nếu chưa có dữ liệu `big_trades`, trang `/bots/big` vẫn render nhưng sẽ hiện trạng thái chưa có data.
+Service này không còn phụ thuộc Supabase.

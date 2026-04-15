@@ -4,4 +4,3 @@ jinja2
 python-multipart
 apscheduler
 requests
-supabase
