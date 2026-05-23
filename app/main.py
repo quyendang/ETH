@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -8,6 +8,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+
+from supabase_logger import EthbotSupabaseLogger
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +22,10 @@ scheduler = BackgroundScheduler(timezone="UTC")
 PUSHOVER_TOKEN = os.getenv("PUSHOVER_TOKEN", "")
 PUSHOVER_USER = os.getenv("PUSHOVER_USER", "")
 PUSHOVER_DEVICE = os.getenv("PUSHOVER_DEVICE", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+_supabase = EthbotSupabaseLogger(SUPABASE_URL or None, SUPABASE_KEY or None)
 
 TRACKED_SYMBOLS = ["ETHUSDT", "BTCUSDT"]
 RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
@@ -341,6 +347,18 @@ def run_symbol_tracker_once(symbol: str, send_notify: bool = False):
         _pushover_notify(
             f"[{payload['action']}] {symbol}",
             f"Price: {price}\nReason: {payload['reason']}\nTime (UTC): {payload['now_utc']}",
+        )
+        sell_low, sell_high, buy_low, buy_high, _, _ = zones
+        support = buy_low if payload["action"] == "BUY" else sell_low
+        resistance = sell_high if payload["action"] == "SELL" else buy_high
+        _supabase.log_signal(
+            symbol=symbol,
+            action=payload["action"],
+            price=price,
+            support=support,
+            resistance=resistance,
+            reason=payload["reason"],
+            as_of=datetime.now(timezone.utc),
         )
 
     return payload
