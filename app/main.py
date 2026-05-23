@@ -9,7 +9,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from supabase_logger import EthbotSupabaseLogger
+from app.supabase_logger import EthbotSupabaseLogger
 
 logging.basicConfig(level=logging.INFO)
 
